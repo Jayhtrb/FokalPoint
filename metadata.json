@@ -1,0 +1,6 @@
+{
+  "name": "FokalPoint",
+  "description": "Airbnb + Instagram + Urban Company for photography & videography. Every Moment in Focus.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
