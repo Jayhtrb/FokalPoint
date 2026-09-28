@@ -7,17 +7,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.screens.AuthLoadingScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.FokalAppContent
 import com.example.ui.theme.FokalAppTheme
-import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.AuthState
+import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.FokalViewModel
 
 class MainActivity : ComponentActivity() {
@@ -25,47 +24,31 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Edge to edge rendering configuration
         enableEdgeToEdge()
-        
-        // Parse any startup deep-link intents
-        intent?.let { handleDeepLink(it) }
-        
+        if (savedInstanceState == null) handleRedirect(intent)
+
         setContent {
-            val isDarkTheme = true // Default dark theme for the app aesthetic
-            val authState by authViewModel.authState.collectAsState()
-            
+            val fokalViewModel: FokalViewModel = viewModel()
+            val isDarkTheme by fokalViewModel.isDarkTheme.collectAsStateWithLifecycle()
+            val authState by authViewModel.authState.collectAsStateWithLifecycle()
+            val user by authViewModel.user.collectAsStateWithLifecycle()
+
+            // Everything user-scoped in the app keys off the authenticated user.
+            LaunchedEffect(user) { fokalViewModel.setActiveUser(user) }
+
             FokalAppTheme(darkTheme = isDarkTheme) {
-                // Navigation based on auth state
-                when (authState) {
-                    is AuthState.Authenticated -> {
-                        val fokalViewModel: FokalViewModel = viewModel()
-                        val user by authViewModel.user.collectAsState()
-                        
-                        // Sync current user role to FokalViewModel
-                        LaunchedEffect(user) {
-                            user?.let {
-                                fokalViewModel.currentUserRole.value = it.role
-                            }
-                        }
-                        
-                        Surface {
-                            FokalAppContent(viewModel = fokalViewModel)
-                        }
-                    }
-                    is AuthState.Loading -> {
-                        Surface {
+                Surface {
+                    when (authState) {
+                        AuthState.Initializing -> AuthLoadingScreen()
+                        AuthState.Authenticated -> if (user != null) {
+                            FokalAppContent(
+                                viewModel = fokalViewModel,
+                                onSignOut = { authViewModel.signOut() }
+                            )
+                        } else {
                             AuthLoadingScreen()
                         }
-                    }
-                    else -> {
-                        Surface {
-                            AuthScreen(
-                                navController = androidx.navigation.compose.rememberNavController(),
-                                viewModel = authViewModel
-                            )
-                        }
+                        else -> AuthScreen(viewModel = authViewModel)
                     }
                 }
             }
@@ -74,15 +57,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleDeepLink(intent)
+        setIntent(intent)
+        handleRedirect(intent)
     }
 
-    private fun handleDeepLink(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_VIEW) {
-            val data = intent.data
-            if (data != null && data.scheme == "fokalpoint") {
-                authViewModel.handleDeepLink(this)
-            }
+    private fun handleRedirect(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action == Intent.ACTION_VIEW && data.scheme == "fokalpoint") {
+            authViewModel.handleRedirect(data)
         }
     }
 }

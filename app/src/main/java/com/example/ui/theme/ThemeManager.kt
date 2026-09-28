@@ -33,7 +33,9 @@ val FokalShapes = Shapes()
 @Composable
 fun FokalAppTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    // Off by default: FokalPoint's gold-on-charcoal brand palette should not be
+    // replaced by wallpaper-derived colors on Android 12+.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

@@ -4,6 +4,7 @@
 )
 package com.example.ui.screens
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -69,24 +71,30 @@ val LocalAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> 
 // ----------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FokalAppContent(viewModel: FokalViewModel) {
+fun FokalAppContent(viewModel: FokalViewModel, onSignOut: () -> Unit) {
     val context = LocalContext.current
     val currentRole by viewModel.currentUserRole.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     
     // Simple state-based navigation
-    var currentScreen by remember { mutableStateOf("customer_main") }
-    var hasRoutedInitially by remember { mutableStateOf(false) }
+    val homeScreen = if (currentRole.equals("Creator", ignoreCase = true)) "creator_main" else "customer_main"
+    var currentScreen by rememberSaveable { mutableStateOf(homeScreen) }
+    val backStack = remember { mutableStateListOf<String>() }
 
-    LaunchedEffect(currentRole) {
-        if (!hasRoutedInitially && currentRole.isNotEmpty()) {
-            if (currentRole.equals("Creator", ignoreCase = true)) {
-                currentScreen = "creator_main"
-                hasRoutedInitially = true
-            } else if (currentRole.equals("Customer", ignoreCase = true)) {
-                currentScreen = "customer_main"
-                hasRoutedInitially = true
-            }
+    // Role changes (e.g. "Become a creator") take the user to that role's home.
+    LaunchedEffect(homeScreen) {
+        if (currentScreen == "customer_main" || currentScreen == "creator_main") {
+            currentScreen = homeScreen
+            backStack.clear()
+        }
+    }
+
+    // One-shot feedback from the ViewModel (sync failures, confirmations).
+    val userMessage by viewModel.authMessage.collectAsStateWithLifecycle()
+    LaunchedEffect(userMessage) {
+        userMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.authMessage.value = null
         }
     }
     
@@ -105,8 +113,6 @@ fun FokalAppContent(viewModel: FokalViewModel) {
             }
         }
     }
-    // Backstack for detail and checkout screens
-    val backStack = remember { mutableStateListOf<String>() }
     
     val selectedCreatorId by viewModel.selectedCreatorId.collectAsStateWithLifecycle()
     val selectedChatCreatorId by viewModel.selectedChatCreatorId.collectAsStateWithLifecycle()
@@ -121,14 +127,10 @@ fun FokalAppContent(viewModel: FokalViewModel) {
     }
     
     fun goBack() {
-        if (backStack.isNotEmpty()) {
-            currentScreen = backStack.removeLast()
-        } else {
-            currentScreen = "auth"
-        }
+        currentScreen = if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) else homeScreen
     }
 
-    BackHandler(enabled = currentScreen != "auth" && currentScreen != "onboarding" && currentScreen != "customer_main" && currentScreen != "creator_main") {
+    BackHandler(enabled = currentScreen != "customer_main" && currentScreen != "creator_main") {
         goBack()
     }
 
@@ -155,41 +157,9 @@ fun FokalAppContent(viewModel: FokalViewModel) {
                         LocalAnimatedVisibilityScope provides this@AnimatedContent
                     ) {
                         when (screenState) {
-                            "auth" -> {
-                                val localNavController = androidx.navigation.compose.rememberNavController()
-                                val authViewModel: com.example.ui.viewmodel.AuthViewModel = viewModel()
-                                AuthScreen(
-                                    navController = localNavController,
-                                    viewModel = authViewModel
-                                )
-                                LaunchedEffect(localNavController) {
-                                    localNavController.addOnDestinationChangedListener { _, destination, _ ->
-                                        if (destination.route == "dashboard") {
-                                            val role = authViewModel.user.value?.role ?: "Customer"
-                                            viewModel.currentUserRole.value = role
-                                            if (role.equals("Customer", ignoreCase = true)) {
-                                                currentScreen = "customer_main"
-                                            } else {
-                                                currentScreen = "creator_main"
-                                            }
-                                            backStack.clear()
-                                        }
-                                    }
-                                }
-                            }
-                            "onboarding" -> OnboardingScreen(
-                                viewModel = viewModel,
-                                onComplete = { role ->
-                                    if (role == "Customer") {
-                                        currentScreen = "customer_main"
-                                    } else {
-                                        currentScreen = "creator_main"
-                                    }
-                                    backStack.clear()
-                                }
-                            )
                             "customer_main" -> CustomerMainScreen(
                                 viewModel = viewModel,
+                                onSignOut = onSignOut,
                                 onNavigateToCreatorDetail = { creatorId ->
                                     viewModel.selectedCreatorId.value = creatorId
                                     navigateTo("creator_detail")
@@ -209,11 +179,7 @@ fun FokalAppContent(viewModel: FokalViewModel) {
                             )
                             "creator_main" -> CreatorMainScreen(
                                 viewModel = viewModel,
-                                onLogout = {
-                                    viewModel.switchRole("Customer")
-                                    currentScreen = "onboarding"
-                                    backStack.clear()
-                                },
+                                onLogout = onSignOut,
                                 onNavigateToChat = { partnerId ->
                                     viewModel.selectedChatCreatorId.value = partnerId
                                     navigateTo("chat_detail")
@@ -223,7 +189,7 @@ fun FokalAppContent(viewModel: FokalViewModel) {
                                 }
                             )
                             "creator_detail" -> {
-                                val creatorId = selectedCreatorId ?: "amit_sharma_creator"
+                                val creatorId = selectedCreatorId ?: return@CompositionLocalProvider
                                 CreatorDetailScreen(
                                     creatorId = creatorId,
                                     viewModel = viewModel,
@@ -254,7 +220,7 @@ fun FokalAppContent(viewModel: FokalViewModel) {
                                 )
                             }
                             "chat_detail" -> {
-                                val partnerId = selectedChatCreatorId ?: "riya_sen_creator"
+                                val partnerId = selectedChatCreatorId ?: return@CompositionLocalProvider
                                 ChatDetailScreen(
                                     partnerId = partnerId,
                                     viewModel = viewModel,
@@ -400,1011 +366,14 @@ fun FokalAppContent(viewModel: FokalViewModel) {
     }
 }
 
-// ----------------------------------------------------
-// ONBOARDING & REGISTRATION SCREEN
-// ----------------------------------------------------
-@Composable
-fun OnboardingScreen(
-    viewModel: FokalViewModel,
-    onComplete: (String) -> Unit
-) {
-    var registerStep by remember { mutableIntStateOf(1) } // 1: Who are you, 2: Creator specification
-    var isLoginMode by remember { mutableStateOf(false) } // False = Signup, True = Login
-    var chosenRole by remember { mutableStateOf("Customer") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
-    var creatorType by remember { mutableStateOf("Photography") } // Photographer, Videographer, Both
-    var experienceLevel by remember { mutableStateOf("Professional") } // Beginner, Professional, Studio
-    var fullName by remember { mutableStateOf("") }
-    var userCity by remember { mutableStateOf("Mumbai") }
-    
-    var yearsOfExperience by remember { mutableIntStateOf(4) }
-    var instagramInput by remember { mutableStateOf("") }
-    var websiteInput by remember { mutableStateOf("") }
-    var youtubeInput by remember { mutableStateOf("") }
-    val selectedSkills = remember { mutableStateListOf("Photographer") }
-    
-    val cities = listOf("Mumbai", "Bengaluru", "Delhi", "Goa", "Jaipur")
-    val scope = rememberCoroutineScope()
-
-    val context = LocalContext.current
-    var showAccountChooser by remember { mutableStateOf(false) }
-    var selectedSocialProvider by remember { mutableStateOf("") } // "Google" or "GitHub"
-
-    // Retrieve active auth message from ViewModel to notify authentication completes
-    val authMsgState = viewModel.authMessage.collectAsStateWithLifecycle()
-    val authLoadingState = viewModel.authLoading.collectAsStateWithLifecycle()
-    val currentUserIdState = viewModel.currentUserId.collectAsStateWithLifecycle()
-    val currentUserRoleState = viewModel.currentUserRole.collectAsStateWithLifecycle()
-
-    LaunchedEffect(authMsgState.value) {
-        authMsgState.value?.let { msg ->
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-            viewModel.authMessage.value = null // reset
-        }
-    }
-
-    LaunchedEffect(currentUserIdState.value) {
-        val currentId = currentUserIdState.value
-        // Automatically proceed if successfully authenticated with a real custom user ID
-        if (currentId.isNotEmpty() && currentId != "current_customer_test" && currentId != "amit_sharma_creator" && !currentId.contains("test")) {
-            onComplete(currentUserRoleState.value)
-        }
-    }
-
-    val handleSocialClick = { provider: String ->
-        selectedSocialProvider = provider
-        showAccountChooser = true
-    }
-
-    if (showAccountChooser) {
-        val accounts = if (selectedSocialProvider == "Google") {
-            listOf(
-                Triple("google_vikram_sen", "Vikram Sen", "vikram.sen@gmail.com"),
-                Triple("google_neha_patil", "Neha Patil", "neha.patil@gmail.com")
-            )
-        } else {
-            listOf(
-                Triple("github_git_sharma", "git_sharma", "sharma.git@github.com"),
-                Triple("github_creative_lens", "creative_lens", "lens.coder@github.com")
-            )
-        }
-        
-        AlertDialog(
-            onDismissRequest = { showAccountChooser = false },
-            title = {
-                Text(
-                    text = "Sign in with $selectedSocialProvider",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                ) {
-                    Text(
-                        text = "Choose how you want to continue to FokalPoint:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    Text(
-                        text = "Option A: Instant Sandbox Profile (Recommended)",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = AmberGold
-                    )
-                    
-                    accounts.forEach { (id, name, email) ->
-                        val avatarUrl = when (id) {
-                            "google_vikram_sen" -> "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
-                            "google_neha_patil" -> "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80"
-                            "github_git_sharma" -> "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80"
-                            else -> "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"
-                        }
-                        
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showAccountChooser = false
-                                    viewModel.loginOrSignUpSocialUser(
-                                        id = id,
-                                        name = name,
-                                        email = email,
-                                        profileImage = avatarUrl,
-                                        initialRole = chosenRole
-                                    )
-                                    onComplete(chosenRole)
-                                }
-                                .testTag("account_item_$id"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AsyncImage(
-                                    model = avatarUrl,
-                                    contentDescription = "$name Avatar",
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = name,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        text = email,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    
-                    Divider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                    
-                    Text(
-                        text = "Option B: Live Browser OAuth (Supabase)",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    
-                    OutlinedButton(
-                        onClick = {
-                            showAccountChooser = false
-                            val url = com.example.BuildConfig.SUPABASE_URL
-                            if (url.isNotEmpty() && !url.contains("placeholder") && url.startsWith("http")) {
-                                val redirectUrl = "fokalpoint://login-callback"
-                                val authUrl = "$url/auth/v1/authorize?provider=${selectedSocialProvider.lowercase()}&redirect_to=$redirectUrl"
-                                try {
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(authUrl))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(context, "No browser detected. Please use the Instant Sandbox options.", android.widget.Toast.LENGTH_LONG).show()
-                                }
-                            } else {
-                                android.widget.Toast.makeText(context, "Supabase URL is not configured or is placeholder. Please use Instant Sandbox.", android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Language,
-                            contentDescription = null,
-                            tint = AmberGold,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Launch Live OAuth Browser",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showAccountChooser = false }) {
-                    Text("Cancel", color = AmberGold)
-                }
-            }
-        )
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp)
-        ) {
-            Spacer(modifier = Modifier.height(20.dp))
-            
-            // App Branding Icon Section
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Brush.radialGradient(listOf(AmberGold, Color.Transparent)))
-                    .border(2.dp, AmberGold, RoundedCornerShape(24.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Camera,
-                    contentDescription = "App Logo Logo",
-                    tint = TextPrimaryDark,
-                    modifier = Modifier.size(44.dp)
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "FokalPoint",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
-                letterSpacing = 1.sp
-            )
-            Text(
-                text = "Every Moment in Focus",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
-            
-            Spacer(modifier = Modifier.height(30.dp))
-
-            if (registerStep == 1) {
-                Text(
-                    text = "Welcome to FokalPoint!",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "Let's personalize your creative setup.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-                )
-
-                // Modern Custom Segmented Control for Sign Up vs Log In Toggle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (!isLoginMode) AmberGold else Color.Transparent)
-                            .clickable { isLoginMode = false }
-                            .testTag("tab_signup"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "New Account",
-                            fontWeight = FontWeight.Bold,
-                            color = if (!isLoginMode) Color.Black else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isLoginMode) AmberGold else Color.Transparent)
-                            .clickable { isLoginMode = true }
-                            .testTag("tab_login"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Existing Sign In",
-                            fontWeight = FontWeight.Bold,
-                            color = if (isLoginMode) Color.Black else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Social Logins Section
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "Instant Sign In",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "Access your FokalPoint account instantly using secure social authentication.",
-                            style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        
-                        if (authLoadingState.value) {
-                            CircularProgressIndicator(color = AmberGold, modifier = Modifier.size(32.dp))
-                        } else {
-                            // Google Authenticator Button
-                            Button(
-                                onClick = { handleSocialClick("Google") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                                    .testTag("btn_social_login_google"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Color(0xFFE0E0E0))
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    AsyncImage(
-                                        model = "https://img.icons8.com/color/48/google-logo.png",
-                                        contentDescription = "Google Icon",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "Continue with Google",
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        color = Color(0xFF2C2C2C)
-                                    )
-                                }
-                            }
-
-                            // GitHub Authenticator Button
-                            Button(
-                                onClick = { handleSocialClick("GitHub") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                                    .testTag("btn_social_login_github"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF181717)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    AsyncImage(
-                                        model = "https://img.icons8.com/color/48/ffffff/github.png",
-                                        contentDescription = "GitHub Icon",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "Continue with GitHub",
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // OR Divider
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Divider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                    Text(
-                        text = " OR USE EMAIL SECURELY ",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                    Divider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                }
-
-                // Full Name Input (Only on Sign Up Mode)
-                if (!isLoginMode) {
-                    OutlinedTextField(
-                        value = fullName,
-                        onValueChange = { fullName = it },
-                        label = { Text("Your Complete Name") },
-                        placeholder = { Text("e.g. Ananya Rao") },
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = AmberGold) },
-                        modifier = Modifier.fillMaxWidth().testTag("input_full_name"),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AmberGold,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Email Input field
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email Address") },
-                    placeholder = { Text("e.g. creative@fokalpoint.com") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = AmberGold) },
-                    modifier = Modifier.fillMaxWidth().testTag("input_email"),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AmberGold,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Password input field
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    placeholder = { Text("Min 6 characters") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AmberGold) },
-                    trailingIcon = {
-                        val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
-                        val description = if (passwordVisible) "Hide password" else "Show password"
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(imageVector = image, contentDescription = description, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("input_password"),
-                    singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AmberGold,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Customer vs Creator Role Question Card Setup (Only on Sign Up Mode)
-                if (!isLoginMode) {
-                    Text(
-                        text = "Choose Your Role",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(110.dp)
-                                .clickable { chosenRole = "Customer" }
-                                .border(
-                                    width = if (chosenRole == "Customer") 2.dp else 1.dp,
-                                    color = if (chosenRole == "Customer") AmberGold else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(16.dp)
-                                ),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (chosenRole == "Customer") MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
-                            ),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize().padding(12.dp),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Groups,
-                                    contentDescription = null,
-                                    tint = if (chosenRole == "Customer") AmberGold else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("Customer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("Hire Creatives", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(110.dp)
-                                .clickable { chosenRole = "Creator" }
-                                .border(
-                                    width = if (chosenRole == "Creator") 2.dp else 1.dp,
-                                    color = if (chosenRole == "Creator") AmberGold else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(16.dp)
-                                ),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (chosenRole == "Creator") MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
-                            ),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize().padding(12.dp),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PhotoCamera,
-                                    contentDescription = null,
-                                    tint = if (chosenRole == "Creator") AmberGold else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("Creator", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("Book Shoots", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Location city dropdown choices list
-                    Text(
-                        text = "Primary Location",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    )
-
-                    var customLocationMode by remember { mutableStateOf(false) }
-                    var customLocationInput by remember { mutableStateOf("") }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        cities.forEach { city ->
-                            val isSelected = !customLocationMode && userCity == city
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { 
-                                    customLocationMode = false
-                                    userCity = city 
-                                },
-                                label = { Text(city) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = AmberGold,
-                                    selectedLabelColor = Color.Black
-                                )
-                            )
-                        }
-                        
-                        FilterChip(
-                            selected = customLocationMode,
-                            onClick = { 
-                                customLocationMode = true
-                                if (customLocationInput.isNotEmpty()) {
-                                    userCity = customLocationInput
-                                }
-                            },
-                            label = { Text("Other (Custom) 🌍") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AmberGold,
-                                selectedLabelColor = Color.Black
-                            )
-                        )
-                    }
-
-                    if (customLocationMode) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = customLocationInput,
-                            onValueChange = { 
-                                customLocationInput = it
-                                userCity = it
-                            },
-                            placeholder = { Text("e.g. Paris, France; London, UK; Mumbai, MH") },
-                            label = { Text("Worldwide Location") },
-                            leadingIcon = { Icon(Icons.Default.Place, contentDescription = null, tint = AmberGold) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("onboarding_custom_location_input"),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AmberGold)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Main CTA trigger
-                Button(
-                    onClick = {
-                        if (email.trim().isEmpty() || password.trim().isEmpty()) {
-                            android.widget.Toast.makeText(context, "Email and password are required", android.widget.Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        if (password.length < 6) {
-                            android.widget.Toast.makeText(context, "Password should be at least 6 characters", android.widget.Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        
-                        if (isLoginMode) {
-                            viewModel.signInWithEmailAndPassword(email.trim(), password.trim(), chosenRole)
-                        } else {
-                            val displayName = fullName.trim().ifEmpty { email.substringBefore("@") }
-                            if (chosenRole == "Creator") {
-                                // Creator onboarding Step 2 gathers specialization metadata BEFORE submitting signup to Supabase
-                                registerStep = 2
-                            } else {
-                                viewModel.signUpWithEmailAndPassword(email.trim(), password.trim(), displayName, "Customer", userCity)
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("button_onboarding_next"),
-                    colors = ButtonDefaults.buttonColors(containerColor = AmberGold)
-                ) {
-                    if (authLoadingState.value) {
-                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
-                    } else {
-                        Text(
-                            text = if (isLoginMode) "Log In to FokalPoint" else if (chosenRole == "Creator") "Continue Setup" else "Explore FokalPoint",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Black,
-                            fontSize = 16.sp
-                        )
-                    }
-                }
-
-                // Guest Entrance Flow Indicator
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                TextButton(
-                    onClick = {
-                        viewModel.switchRole(chosenRole)
-                        onComplete(chosenRole)
-                    },
-                    modifier = Modifier.testTag("button_onboarding_guest")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Explore as Guest (${chosenRole})",
-                            color = AmberGold,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = "Guest explore",
-                            tint = AmberGold,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-            } else {
-                // Creator specifications Details (Step 2 of Creator Sign Up)
-                Text(
-                    text = "Creator Style Details",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Showcase your specialities to local builders",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-                )
-
-                // Select Creator Type Specialty selection
-                Text(
-                    text = "Primary Specialization",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-
-                val specialities = listOf("Photographer", "Videographer", "Both")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    specialities.forEach { style ->
-                        val isSelected = creatorType == style
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) AmberGold else MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { creatorType = style }
-                                .border(1.dp, if (isSelected) AmberGold else Color.Transparent, RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = style,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Multi-select skillset checkboxes
-                Text(
-                    text = "Choose Your Skillsets (Select multiple/all)",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-
-                val skillOptions = listOf("Photographer", "Videographer", "Reel Creator")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    skillOptions.forEach { skill ->
-                        val isChecked = selectedSkills.contains(skill)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isChecked) AmberGold.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface)
-                                .clickable {
-                                    if (isChecked) {
-                                        if (selectedSkills.size > 1) selectedSkills.remove(skill)
-                                    } else {
-                                        selectedSkills.add(skill)
-                                    }
-                                }
-                                .border(
-                                    width = if (isChecked) 2.dp else 1.dp,
-                                    color = if (isChecked) AmberGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isChecked) Icons.Default.CheckCircle else Icons.Default.AddCircleOutline,
-                                    contentDescription = null,
-                                    tint = if (isChecked) AmberGold else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = skill,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Experience Selection Level Choose
-                Text(
-                    text = "Experience Profile",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-
-                val levels = listOf("Beginner", "Professional", "Studio")
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    levels.forEach { level ->
-                        val isSelected = experienceLevel == level
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
-                                .clickable { experienceLevel = level }
-                                .border(
-                                    width = if (isSelected) 1.5.dp else 1.dp,
-                                    color = if (isSelected) AmberGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { experienceLevel = level },
-                                colors = RadioButtonDefaults.colors(selectedColor = AmberGold)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
-                                Text(
-                                    text = level,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = when (level) {
-                                        "Beginner" -> "Fresh styling, startup friendly, basic gears"
-                                        "Professional" -> "Industry standard, high fidelity cinema rigs"
-                                        else -> "Full camera production layout, soundstage"
-                                    },
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Interactive slider for years of experience
-                Text(
-                    text = "Years of Experience: $yearsOfExperience Years",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Slider(
-                    value = yearsOfExperience.toFloat(),
-                    onValueChange = { yearsOfExperience = it.toInt() },
-                    valueRange = 1f..25f,
-                    steps = 24,
-                    colors = SliderDefaults.colors(
-                        activeTrackColor = AmberGold,
-                        thumbColor = AmberGold
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Link Social Links input fields
-                Text(
-                    text = "Link Your Social Portfolios",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-
-                // Instagram field
-                OutlinedTextField(
-                    value = instagramInput,
-                    onValueChange = { instagramInput = it },
-                    label = { Text("Instagram Username/URL") },
-                    placeholder = { Text("e.g. amit_sharmaproductions") },
-                    leadingIcon = { Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = AmberGold) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AmberGold)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // YouTube field
-                OutlinedTextField(
-                    value = youtubeInput,
-                    onValueChange = { youtubeInput = it },
-                    label = { Text("YouTube Channel Link") },
-                    placeholder = { Text("e.g. https://youtube.com/c/amitsharmaproductions") },
-                    leadingIcon = { Icon(Icons.Default.VideoCameraBack, contentDescription = null, tint = AmberGold) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AmberGold)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Website Field
-                OutlinedTextField(
-                    value = websiteInput,
-                    onValueChange = { websiteInput = it },
-                    label = { Text("Website / Portfolio Address") },
-                    placeholder = { Text("e.g. www.amitsharmamedia.com") },
-                    leadingIcon = { Icon(Icons.Default.Language, contentDescription = null, tint = AmberGold) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AmberGold)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { registerStep = 1 },
-                        modifier = Modifier.weight(1f).height(50.dp)
-                    ) {
-                        Text("Back", color = MaterialTheme.colorScheme.onBackground)
-                    }
-
-                    Button(
-                        onClick = {
-                            viewModel.regCreatorType.value = creatorType
-                            viewModel.regExperienceLevel.value = experienceLevel
-                            viewModel.regYearsOfExperience.value = yearsOfExperience
-                            viewModel.regInstagram.value = instagramInput.trim()
-                            viewModel.regWebsite.value = websiteInput.trim()
-                            viewModel.regYoutube.value = youtubeInput.trim()
-                            viewModel.regSkillset.value = selectedSkills.joinToString(", ")
-
-                            val displayName = fullName.trim().ifEmpty { email.substringBefore("@") }
-                            viewModel.signUpWithEmailAndPassword(email.trim(), password.trim(), displayName, "Creator", userCity)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = AmberGold),
-                        modifier = Modifier.weight(1.5f).height(50.dp).testTag("button_onboarding_register")
-                    ) {
-                        if (authLoadingState.value) {
-                            CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
-                        } else {
-                            Text("Launch Creator Office", fontWeight = FontWeight.Bold, color = Color.Black)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-// ----------------------------------------------------
-// CUSTOMER JOURNEY SCREEN WITH TABBED SECTIONS
-// ----------------------------------------------------
 @Composable
 fun CustomerMainScreen(
     viewModel: FokalViewModel,
     onNavigateToCreatorDetail: (String) -> Unit,
     onNavigateToChat: (String) -> Unit,
     onNavigateToReview: ((Long, String) -> Unit)? = null,
-    onNavigateToPostShootAlert: (() -> Unit)? = null
+    onNavigateToPostShootAlert: (() -> Unit)? = null,
+    onSignOut: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Home, 1: Search, 2: Bookings, 3: Favorites, 4: Messages, 5: Fokal AI
 
@@ -1442,7 +411,7 @@ fun CustomerMainScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             when (selectedTab) {
-                0 -> CustomerDashboardScreen(viewModel, onNavigateToCreatorDetail, onNavigateToPostShootAlert)
+                0 -> CustomerDashboardScreen(viewModel, onNavigateToCreatorDetail, onNavigateToPostShootAlert, onSignOut)
                 1 -> CustomerSearchScreen(viewModel, onNavigateToCreatorDetail)
                 2 -> CustomerBookingsScreen(viewModel, onNavigateToChat, onNavigateToReview)
                 3 -> CustomerFavoritesScreen(viewModel, onNavigateToCreatorDetail)
@@ -1461,7 +430,8 @@ fun CustomerMainScreen(
 fun CustomerDashboardScreen(
     viewModel: FokalViewModel,
     onNavigateToCreatorDetail: (String) -> Unit,
-    onNavigateToPostShootAlert: (() -> Unit)? = null
+    onNavigateToPostShootAlert: (() -> Unit)? = null,
+    onSignOut: () -> Unit = {}
 ) {
     val creators by viewModel.filteredCreators.collectAsStateWithLifecycle()
     val scrollState = rememberScrollState()
@@ -1532,28 +502,57 @@ fun CustomerDashboardScreen(
                 )
             }
 
-            // Quick Switcher Button on Header representing platform control
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .clickable { viewModel.switchRole("Creator") },
-                colors = CardDefaults.cardColors(containerColor = BlackCoal.copy(alpha = 0.8f)),
-                shape = CircleShape,
-                border = BorderStroke(1.dp, AmberGold)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            // Account menu on the hero header
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+                var accountMenuOpen by remember { mutableStateOf(false) }
+                val profile by viewModel.currentUserProfile.collectAsStateWithLifecycle()
+                val isDark by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+                Card(
+                    modifier = Modifier
+                        .clickable { accountMenuOpen = true }
+                        .testTag("account_menu_button"),
+                    colors = CardDefaults.cardColors(containerColor = BlackCoal.copy(alpha = 0.8f)),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, AmberGold)
                 ) {
-                    Icon(
-                        Icons.Default.SwitchAccount,
-                        contentDescription = null,
-                        tint = AmberGold,
-                        modifier = Modifier.size(16.dp)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            tint = AmberGold,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            profile?.name?.substringBefore(' ')?.ifBlank { null } ?: "Account",
+                            color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                DropdownMenu(expanded = accountMenuOpen, onDismissRequest = { accountMenuOpen = false }) {
+                    profile?.email?.takeIf { it.isNotBlank() }?.let { email ->
+                        DropdownMenuItem(text = { Text(email, fontSize = 12.sp) }, onClick = {}, enabled = false)
+                        HorizontalDivider()
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Become a creator") },
+                        leadingIcon = { Icon(Icons.Default.PhotoCamera, contentDescription = null) },
+                        onClick = { accountMenuOpen = false; viewModel.switchRole("Creator") }
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Office Mode", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    DropdownMenuItem(
+                        text = { Text(if (isDark) "Light theme" else "Dark theme") },
+                        leadingIcon = { Icon(if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode, contentDescription = null) },
+                        onClick = { accountMenuOpen = false; viewModel.toggleTheme() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Sign out") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null) },
+                        onClick = { accountMenuOpen = false; onSignOut() },
+                        modifier = Modifier.testTag("account_sign_out")
+                    )
                 }
             }
         }
@@ -5179,6 +4178,17 @@ fun CheckoutScreen(
                 val currentAmountTypeVal = selectedAmountType
                 Button(
                     onClick = {
+                        // Live backend: no payment gateway is wired up yet, so never simulate
+                        // a charge. The booking goes to the creator as a request instead.
+                        if (!viewModel.isDemoMode) {
+                            Toast.makeText(
+                                context,
+                                "Booking request sent! You'll arrange payment once the creator accepts.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onSuccess()
+                            return@Button
+                        }
                         // Validate inputs
                         if (paymentOption == "UPI" && upiId.isEmpty() && !generateQrCheck) {
                             Toast.makeText(context, "Please enter your UPI ID or generate a static QR code.", Toast.LENGTH_LONG).show()
@@ -5232,7 +4242,8 @@ fun CheckoutScreen(
                     modifier = Modifier.fillMaxWidth().height(52.dp).testTag("button_complete_payment")
                 ) {
                     Text(
-                        text = "Pay ₹${payableAmount.toInt()} using $paymentOption",
+                        text = if (viewModel.isDemoMode) "Pay ₹${payableAmount.toInt()} using $paymentOption (demo)"
+                        else "Send booking request",
                         fontWeight = FontWeight.Black,
                         color = Color.Black,
                         fontSize = 16.sp

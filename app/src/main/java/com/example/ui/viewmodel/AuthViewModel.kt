@@ -1,6 +1,5 @@
 package com.example.ui.viewmodel
 
-import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -9,294 +8,202 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.User
-import com.example.data.repository.*
+import com.example.data.repository.SessionManager.Session
+import com.example.data.supabase.OAuthProvider
+import com.example.data.supabase.SignUpResult
+import com.example.data.supabase.SupabaseAuth
+import com.example.data.supabase.SupabaseClient
+import com.example.data.supabase.SupabaseConfig
+import com.example.data.supabase.SupabaseException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.IOException
 
-class UserRepository(private val fokalRepository: FokalRepository) {
-    suspend fun createUser(user: User) {
-        fokalRepository.insertUser(user)
-    }
-    suspend fun getUser(id: String): User? {
-        return fokalRepository.getUser(id)
-    }
-}
+/**
+ * Single source of truth for authentication. The signed-in [User] it exposes is what
+ * the rest of the app keys all data on.
+ */
+class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
-class AuthViewModel(
-    application: Application,
-    private val authRepository: AuthRepository,
-    private val userRepository: UserRepository,
-    private val supabase: SupabaseClient
-) : AndroidViewModel(application) {
-    
-    // Auxiliary constructor to facilitate standard Compose instantiation without Hilt
-    constructor(application: Application) : this(
-        application = application,
-        authRepository = AuthRepository(
-            supabase = SupabaseClient(application),
-            context = application
-        ),
-        userRepository = UserRepository(
-            FokalRepository(
-                AppDatabase.getDatabase(application).userDao(),
-                AppDatabase.getDatabase(application).creatorDao(),
-                AppDatabase.getDatabase(application).portfolioDao(),
-                AppDatabase.getDatabase(application).bookingDao(),
-                AppDatabase.getDatabase(application).reviewDao(),
-                AppDatabase.getDatabase(application).messageDao(),
-                AppDatabase.getDatabase(application).favoriteDao(),
-                AppDatabase.getDatabase(application).clientLeadDao(),
-                AppDatabase.getDatabase(application).payoutMethodDao()
-            )
-        ),
-        supabase = SupabaseClient(application)
-    )
-    
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
+    private val supabase = SupabaseClient.get(application)
+    private val auth: SupabaseAuth = supabase.auth
+    private val userDao = AppDatabase.getDatabase(application).userDao()
+
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Initializing)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
-    
+
     private val _user = MutableStateFlow<User?>(null)
     val user: StateFlow<User?> = _user.asStateFlow()
-    
-    private var oauthCallbackHandler: ((Uri?) -> Unit)? = null
-    
+
+    /** One-shot informational message (e.g. "reset link sent"), cleared by the UI. */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    val isDemoMode: Boolean get() = !SupabaseConfig.isConfigured
+
     init {
-        checkSession()
-    }
-    
-    private fun checkSession() {
         viewModelScope.launch {
-            try {
-                val session = supabase.auth.getSession()
-                if (session?.user != null) {
-                    _authState.value = AuthState.Authenticated
-                    loadUserProfile(session.user.id)
-                } else {
-                    _authState.value = AuthState.Unauthenticated
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.message ?: "Session check failed")
-            }
+            val restored = runCatching { auth.restoreSession() }.getOrNull()
+            if (restored != null) onSignedIn(restored) else _authState.value = AuthState.Unauthenticated
         }
     }
-    
-    fun signInWithGoogle(context: Context) {
-        viewModelScope.launch {
-            try {
-                _authState.value = AuthState.Loading
-                
-                // Start OAuth flow
-                val result = supabase.auth.signInWithGoogle(
-                    redirectUrl = "fokalpoint://login-callback"
-                )
-                
-                // Open browser for OAuth
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(result.url))
-                context.startActivity(intent)
-                
-                // Handle callback via deep link
-                oauthCallbackHandler = { uri ->
-                    handleOAuthCallback(uri)
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error("Google Sign In failed: ${e.message}")
-            }
-        }
-    }
-    
-    fun signInWithGitHub(context: Context) {
-        viewModelScope.launch {
-            try {
-                _authState.value = AuthState.Loading
-                
-                val result = supabase.auth.signInWithGitHub(
-                    redirectUrl = "fokalpoint://login-callback"
-                )
-                
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(result.url))
-                context.startActivity(intent)
-                
-                oauthCallbackHandler = { uri ->
-                    handleOAuthCallback(uri)
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error("GitHub Sign In failed: ${e.message}")
-            }
-        }
-    }
-    
-    fun handleDeepLink(context: Context) {
-        val intent = (context as? Activity)?.intent
-        if (intent?.action == Intent.ACTION_VIEW) {
-            val data = intent.data
-            if (data != null && data.scheme == "fokalpoint") {
-                handleOAuthCallback(data)
-            }
-        }
-    }
-    
-    private fun handleOAuthCallback(uri: Uri?) {
-        viewModelScope.launch {
-            try {
-                if (uri == null) {
-                    _authState.value = AuthState.Error("OAuth callback failed")
-                    return@launch
-                }
-                
-                // Exchange code for session
-                val session = supabase.auth.getSession()
-                if (session != null) {
-                    _authState.value = AuthState.Authenticated
-                    loadUserProfile(session.user.id)
-                } else {
-                    _authState.value = AuthState.Error("Authentication failed")
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error("OAuth callback error: ${e.message}")
-            }
-        }
-    }
-    
+
     fun signInWithEmail(email: String, password: String) {
-        viewModelScope.launch {
-            try {
-                _authState.value = AuthState.Loading
-                
-                val response = supabase.auth.signIn(
-                    email = email,
-                    password = password
-                )
-                
-                if (response.user != null) {
-                    _authState.value = AuthState.Authenticated
-                    loadUserProfile(response.user.id)
-                } else {
-                    _authState.value = AuthState.Error("Invalid credentials")
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(
-                    when {
-                        e.message?.contains("Invalid login credentials") == true -> 
-                            "Invalid email or password. Please try again."
-                        e.message?.contains("Email not confirmed") == true ->
-                            "Please verify your email before logging in."
-                        else -> "Login failed: ${e.message}"
-                    }
-                )
-            }
-        }
+        validateCredentials(email, password, name = null)?.let { return fail(it) }
+        run { onSignedIn(auth.signIn(email.trim(), password)) }
     }
-    
+
     fun signUpWithEmail(email: String, password: String, name: String, role: String) {
-        viewModelScope.launch {
-            try {
-                _authState.value = AuthState.Loading
-                
-                // Validate password strength
-                if (password.length < 8) {
-                    _authState.value = AuthState.Error("Password must be at least 8 characters")
-                    return@launch
-                }
-                
-                val response = supabase.auth.signUp(
-                    email = email,
-                    password = password,
-                    userMetadata = mapOf(
-                        "name" to name,
-                        "role" to role
-                    )
-                )
-                
-                if (response.user != null) {
-                    // Create user profile
-                    val user = User(
-                        id = response.user.id,
-                        name = name,
-                        email = email,
-                        phone = "",
-                        role = role,
-                        profileImage = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
-                        city = "Mumbai",
-                        state = "Maharashtra",
-                        country = "India",
-                        createdAt = System.currentTimeMillis()
-                    )
-                    userRepository.createUser(user)
-                    
-                    _authState.value = AuthState.Authenticated
-                    loadUserProfile(response.user.id)
-                } else {
-                    _authState.value = AuthState.Error("Sign up failed. Please try again.")
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(
-                    when {
-                        e.message?.contains("User already registered") == true ->
-                            "This email is already registered. Please sign in instead."
-                        e.message?.contains("Password") == true ->
-                            "Password must be at least 8 characters with mix of letters and numbers"
-                        else -> "Sign up failed: ${e.message}"
-                    }
-                )
+        validateCredentials(email, password, name)?.let { return fail(it) }
+        run {
+            when (val result = auth.signUp(email.trim(), password, name.trim(), role)) {
+                is SignUpResult.SignedIn -> onSignedIn(result.session)
+                is SignUpResult.ConfirmationRequired ->
+                    _authState.value = AuthState.AwaitingEmailConfirmation(result.email)
             }
         }
     }
 
     fun verifyOTP(code: String) {
+        val email = (authState.value as? AuthState.AwaitingEmailConfirmation)?.email
+            ?: return fail("Please sign up again to receive a new code.")
+        if (code.length != 6 || !code.all(Char::isDigit)) return fail("Enter the 6-digit code from your email.")
+        run(onErrorState = AuthState.AwaitingEmailConfirmation(email)) {
+            onSignedIn(auth.verifyEmailOtp(email, code))
+        }
+    }
+
+    fun sendPasswordReset(email: String) {
+        if (!EMAIL_REGEX.matches(email.trim())) {
+            _notice.value = "Enter your account email above first."
+            return
+        }
         viewModelScope.launch {
-            _authState.value = AuthState.Loading
-            kotlinx.coroutines.delay(1000)
-            if (code == "123456" || code.length == 6) {
-                _authState.value = AuthState.Authenticated
-            } else {
-                _authState.value = AuthState.Error("Invalid OTP code. Please enter 6 digits.")
+            _notice.value = try {
+                auth.sendPasswordReset(email.trim())
+                if (isDemoMode) "Password reset isn't available in demo mode."
+                else "If an account exists for ${email.trim()}, a reset link is on its way."
+            } catch (e: Exception) {
+                friendlyMessage(e)
             }
         }
     }
-    
-    private suspend fun loadUserProfile(userId: String) {
+
+    fun signInWithGoogle(context: Context) = signInWithOAuth(context, OAuthProvider.Google)
+    fun signInWithGitHub(context: Context) = signInWithOAuth(context, OAuthProvider.GitHub)
+
+    private fun signInWithOAuth(context: Context, provider: OAuthProvider) {
+        val url = auth.oauthUrl(provider)
+        if (url == null) {
+            run { onSignedIn(auth.demoOAuthSession(provider)) }
+            return
+        }
         try {
-            val user = userRepository.getUser(userId)
-            _user.value = user
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (e: Exception) {
-            // Create profile if it doesn't exist
-            val userData = supabase.auth.getUser()
-            val newUser = User(
-                id = userId,
-                name = userData.user?.userMetadata?.get("name") as? String ?: "",
-                email = userData.user?.email ?: "",
-                phone = "",
-                role = userData.user?.userMetadata?.get("role") as? String ?: "Customer",
-                profileImage = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
-                city = "Mumbai",
-                state = "Maharashtra",
-                country = "India",
-                createdAt = System.currentTimeMillis()
-            )
-            userRepository.createUser(newUser)
-            _user.value = newUser
+            fail("No browser is available to complete ${provider.name} sign-in.")
         }
     }
-    
+
+    /** Called by MainActivity for `fokalpoint://login-callback…` redirects. */
+    fun handleRedirect(uri: Uri) {
+        if (uri.scheme != "fokalpoint") return
+        run { onSignedIn(auth.completeRedirect(uri)) }
+    }
+
+    fun clearNotice() { _notice.value = null }
+
+    fun dismissError() {
+        if (_authState.value is AuthState.Error) _authState.value = AuthState.Unauthenticated
+    }
+
     fun signOut() {
         viewModelScope.launch {
+            auth.signOut()
+            _user.value = null
+            _authState.value = AuthState.Unauthenticated
+        }
+    }
+
+    // ------------------------------------------------------------------ internals
+
+    private suspend fun onSignedIn(session: Session) {
+        _user.value = syncProfile(session)
+        _authState.value = AuthState.Authenticated
+    }
+
+    /** Ensures a local profile exists, preferring the server's `public.users` row when online. */
+    private suspend fun syncProfile(session: Session): User {
+        val local = userDao.getUserById(session.userId)
+        val remote = if (supabase.rest.isAvailable) {
+            runCatching {
+                supabase.rest.select("users", "id" to "eq.${session.userId}", "limit" to "1").optJSONObject(0)
+            }.getOrNull()
+        } else null
+
+        val user = User(
+            id = session.userId,
+            name = remote?.optString("name")?.takeIf { it.isNotBlank() } ?: local?.name ?: session.name,
+            email = session.email.ifBlank { local?.email.orEmpty() },
+            phone = remote?.optString("phone")?.takeIf { it != "null" } ?: local?.phone.orEmpty(),
+            role = SupabaseAuth.normalizeRole(remote?.optString("role") ?: local?.role ?: session.role),
+            profileImage = remote?.optString("profile_image")?.takeIf { it.isNotBlank() && it != "null" }
+                ?: local?.profileImage?.takeIf { it.isNotBlank() } ?: session.avatarUrl,
+            city = remote?.optString("city")?.takeIf { it != "null" } ?: local?.city.orEmpty(),
+            state = remote?.optString("state")?.takeIf { it != "null" } ?: local?.state.orEmpty(),
+            country = remote?.optString("country")?.takeIf { it != "null" } ?: local?.country ?: "India",
+            createdAt = local?.createdAt ?: System.currentTimeMillis()
+        )
+        userDao.insertUser(user)
+        auth.updateRole(user.role)
+        return user
+    }
+
+    private fun run(onErrorState: AuthState? = null, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
             try {
-                supabase.auth.signOut()
-                _authState.value = AuthState.Unauthenticated
-                _user.value = null
+                block()
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("Sign out failed: ${e.message}")
+                _authState.value = onErrorState ?: AuthState.Error(friendlyMessage(e))
+                if (onErrorState != null) _notice.value = friendlyMessage(e)
             }
+        }
+    }
+
+    private fun fail(message: String) {
+        _authState.value = AuthState.Error(message)
+    }
+
+    companion object {
+        fun validateCredentials(email: String, password: String, name: String?): String? = when {
+            name != null && name.isBlank() -> "Please enter your name."
+            !EMAIL_REGEX.matches(email.trim()) -> "Please enter a valid email address."
+            name != null && password.length < 8 -> "Password must be at least 8 characters."
+            name != null && (password.none(Char::isLetter) || password.none(Char::isDigit)) ->
+                "Password must contain both letters and numbers."
+            password.isEmpty() -> "Please enter your password."
+            else -> null
+        }
+
+        private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+
+        fun friendlyMessage(e: Exception): String = when (e) {
+            is SupabaseException -> e.message ?: "Something went wrong."
+            is IOException -> "Can't reach the server. Check your connection and try again."
+            else -> e.message ?: "Something went wrong."
         }
     }
 }
 
 sealed class AuthState {
-    object Idle : AuthState()
-    object Loading : AuthState()
-    object Authenticated : AuthState()
+    /** Restoring a saved session at app start. */
+    object Initializing : AuthState()
     object Unauthenticated : AuthState()
+    object Loading : AuthState()
+    data class AwaitingEmailConfirmation(val email: String) : AuthState()
+    object Authenticated : AuthState()
     data class Error(val message: String) : AuthState()
 }

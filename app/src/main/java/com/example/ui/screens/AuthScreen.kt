@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,14 +21,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
 import com.example.ui.components.GlassCard
 import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.AuthState
 
 @Composable
 fun AuthScreen(
-    navController: NavController,
     viewModel: AuthViewModel = viewModel()
 ) {
     val authState by viewModel.authState.collectAsState()
@@ -35,42 +35,16 @@ fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var userRole by remember { mutableStateOf("customer") }
-    var isLoading by remember { mutableStateOf(false) }
-    var showError by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf("") }
-    var showOTPInput by remember { mutableStateOf(false) }
+    var userRole by remember { mutableStateOf("Customer") }
     var otpCode by remember { mutableStateOf("") }
-    
+    val notice by viewModel.notice.collectAsState()
+
+    val isLoading = authState is AuthState.Loading
+    val showOTPInput = authState is AuthState.AwaitingEmailConfirmation
+    val errorMessage = (authState as? AuthState.Error)?.message.orEmpty()
+    val showError = authState is AuthState.Error
+
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    
-    // Handle deep link authentication
-    LaunchedEffect(Unit) {
-        viewModel.handleDeepLink(context)
-    }
-    
-    // Handle auth state changes
-    LaunchedEffect(authState) {
-        when (authState) {
-            is AuthState.Authenticated -> {
-                isLoading = false
-                // Navigate to appropriate dashboard
-                navController.navigate("dashboard") {
-                    popUpTo("auth") { inclusive = true }
-                }
-            }
-            is AuthState.Error -> {
-                isLoading = false
-                showError = true
-                errorMessage = (authState as AuthState.Error).message
-            }
-            is AuthState.Loading -> {
-                isLoading = true
-            }
-            else -> { /* Idle or Unauthenticated */ }
-        }
-    }
     
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -89,6 +63,8 @@ fun AuthScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -126,6 +102,21 @@ fun AuthScreen(
                 )
             }
             
+            if (viewModel.isDemoMode) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = Color.White.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        "Demo mode · any email & password works, data stays on this device",
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
             
             // Auth Card
@@ -147,7 +138,7 @@ fun AuthScreen(
                             selected = isLogin,
                             onClick = { 
                                 isLogin = true
-                                showError = false
+                                viewModel.dismissError()
                             }
                         )
                         AuthToggleButton(
@@ -155,7 +146,7 @@ fun AuthScreen(
                             selected = !isLogin,
                             onClick = { 
                                 isLogin = false
-                                showError = false
+                                viewModel.dismissError()
                             }
                         )
                     }
@@ -166,11 +157,9 @@ fun AuthScreen(
                     OAuthProvidersSection(
                         isLoading = isLoading,
                         onGoogleSignIn = {
-                            isLoading = true
                             viewModel.signInWithGoogle(context)
                         },
                         onGitHubSignIn = {
-                            isLoading = true
                             viewModel.signInWithGitHub(context)
                         }
                     )
@@ -204,7 +193,7 @@ fun AuthScreen(
                         value = email,
                         onValueChange = { 
                             email = it
-                            showError = false
+                            viewModel.dismissError()
                         },
                         label = { Text("Email") },
                         placeholder = { Text("you@example.com") },
@@ -228,7 +217,7 @@ fun AuthScreen(
                             value = name,
                             onValueChange = { 
                                 name = it
-                                showError = false
+                                viewModel.dismissError()
                             },
                             label = { Text("Full Name") },
                             placeholder = { Text("John Doe") },
@@ -254,7 +243,7 @@ fun AuthScreen(
                         value = password,
                         onValueChange = { 
                             password = it
-                            showError = false
+                            viewModel.dismissError()
                         },
                         label = { Text("Password") },
                         placeholder = { Text("••••••••") },
@@ -296,13 +285,13 @@ fun AuthScreen(
                         ) {
                             RoleChip(
                                 label = "👤 Customer",
-                                selected = userRole == "customer",
-                                onClick = { userRole = "customer" }
+                                selected = userRole == "Customer",
+                                onClick = { userRole = "Customer" }
                             )
                             RoleChip(
                                 label = "📸 Creator",
-                                selected = userRole == "creator",
-                                onClick = { userRole = "creator" }
+                                selected = userRole == "Creator",
+                                onClick = { userRole = "Creator" }
                             )
                         }
                     }
@@ -310,6 +299,13 @@ fun AuthScreen(
                     // OTP Input (if enabled)
                     if (showOTPInput) {
                         Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "We sent a 6-digit code to ${(authState as AuthState.AwaitingEmailConfirmation).email}. " +
+                                "Enter it below, or tap the link in the email.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = otpCode,
                             onValueChange = { 
@@ -368,13 +364,12 @@ fun AuthScreen(
                     // Submit Button
                     Button(
                         onClick = {
-                            isLoading = true
-                            if (isLogin) {
+                            if (showOTPInput) {
+                                viewModel.verifyOTP(otpCode)
+                            } else if (isLogin) {
                                 viewModel.signInWithEmail(email, password)
                             } else {
-                                if (showOTPInput) {
-                                    viewModel.verifyOTP(otpCode)
-                                } else {
+                                run {
                                     viewModel.signUpWithEmail(
                                         email = email,
                                         password = password,
@@ -387,10 +382,11 @@ fun AuthScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        enabled = !isLoading && 
-                            email.isNotBlank() && 
-                            password.isNotBlank() && 
-                            (isLogin || name.isNotBlank())
+                        enabled = !isLoading && if (showOTPInput) {
+                            otpCode.length == 6
+                        } else {
+                            email.isNotBlank() && password.isNotBlank() && (isLogin || name.isNotBlank())
+                        }
                     ) {
                         when {
                             isLoading -> {
@@ -415,9 +411,7 @@ fun AuthScreen(
                     if (isLogin) {
                         Spacer(modifier = Modifier.height(8.dp))
                         TextButton(
-                            onClick = {
-                                // Show forgot password dialog
-                            },
+                            onClick = { viewModel.sendPasswordReset(email) },
                             modifier = Modifier.align(Alignment.End)
                         ) {
                             Text(
@@ -432,8 +426,12 @@ fun AuthScreen(
         }
     }
     
-    if (authState is AuthState.Loading) {
-        AuthLoadingScreen()
+    notice?.let { message ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearNotice() },
+            confirmButton = { TextButton(onClick = { viewModel.clearNotice() }) { Text("OK") } },
+            text = { Text(message) }
+        )
     }
 }
 }

@@ -18,6 +18,7 @@ class FokalRepository(
 ) {
     val allCreators: Flow<List<Creator>> = creatorDao.getAllCreators()
     val allLeads: Flow<List<ClientLead>> = clientLeadDao.getAllLeads()
+    val allUsers: Flow<List<User>> = userDao.getAllUsers()
 
     fun getCreator(id: String): Flow<Creator?> = creatorDao.getCreatorById(id)
     suspend fun getCreatorSync(id: String): Creator? = creatorDao.getCreatorByIdSync(id)
