@@ -149,3 +149,21 @@ object RemoteMappers {
     private fun JSONObject.str(key: String): String =
         if (isNull(key)) "" else optString(key, "")
 }
+
+/** PostgREST filters shared by the ViewModel sync code and the integration tests. */
+object RemoteQueries {
+    /** Bookings where [userId] is either the customer or the creator. */
+    fun bookingsInvolving(userId: String): Array<Pair<String, String>> = arrayOf(
+        "or" to "(customer_id.eq.$userId,creator_id.eq.$userId)",
+        "order" to "created_at.desc"
+    )
+
+    /** Both directions of a one-to-one conversation, oldest first. */
+    fun conversation(me: String, partner: String): Array<Pair<String, String>> = arrayOf(
+        "or" to "(and(sender_id.eq.$me,receiver_id.eq.$partner),and(sender_id.eq.$partner,receiver_id.eq.$me))",
+        "order" to "created_at.asc",
+        "limit" to "500"
+    )
+
+    fun idIn(ids: Collection<String>): String = "in.(${ids.joinToString(",")})"
+}

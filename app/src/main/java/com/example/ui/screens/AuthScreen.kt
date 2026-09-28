@@ -138,7 +138,7 @@ fun AuthScreen(
                             selected = isLogin,
                             onClick = { 
                                 isLogin = true
-                                viewModel.dismissError()
+                                viewModel.resetForm()
                             }
                         )
                         AuthToggleButton(
@@ -146,7 +146,7 @@ fun AuthScreen(
                             selected = !isLogin,
                             onClick = { 
                                 isLogin = false
-                                viewModel.dismissError()
+                                viewModel.resetForm()
                             }
                         )
                     }
@@ -543,5 +543,46 @@ fun RowScope.RoleChip(
             selectedLabelColor = Color.White,
             disabledSelectedContainerColor = Color.White.copy(alpha = 0.1f)
         )
+    )
+}
+
+/** Shown after opening a password-recovery link, while signed in with the recovery session. */
+@Composable
+fun SetNewPasswordDialog(onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    val mismatch = confirm.isNotEmpty() && confirm != password
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose a new password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("New password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    supportingText = { Text("At least 8 characters, letters and numbers") }
+                )
+                OutlinedTextField(
+                    value = confirm,
+                    onValueChange = { confirm = it },
+                    label = { Text("Confirm password") },
+                    singleLine = true,
+                    isError = mismatch,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    supportingText = { if (mismatch) Text("Passwords don't match") }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSubmit(password) }, enabled = password.isNotEmpty() && confirm == password) {
+                Text("Update password")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } }
     )
 }

@@ -1,5 +1,8 @@
 package com.example.data.service
 
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.Manifest
 import android.content.Context
 import android.location.Location
@@ -10,6 +13,10 @@ import com.google.android.gms.location.Priority
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
+
+fun hasLocationPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
 class LocationService(private val context: Context) {
     
@@ -45,7 +52,10 @@ class LocationService(private val context: Context) {
         CityInfo("Vijayawada", "Andhra Pradesh", "India", 16.5062, 80.6480, 50)
     )
     
+    /** Returns null when permission is missing or no fix is available (never a guessed city). */
+    @SuppressLint("MissingPermission") // guarded by hasLocationPermission()
     suspend fun detectUserCity(): CityInfo? {
+        if (!hasLocationPermission(context)) return null
         return try {
             // Try to get last known location
             val location = fusedLocationClient.lastLocation.await()
@@ -54,19 +64,18 @@ class LocationService(private val context: Context) {
             } else {
                 // Request current location
                 val currentLocation = fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
+                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
                     null
                 ).await()
                 if (currentLocation != null) {
                     findNearestCity(currentLocation)
                 } else {
-                    // Default to Hyderabad if location unavailable
-                    majorCities.find { it.name == "Hyderabad" }
+                    null
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
-            majorCities.find { it.name == "Hyderabad" }
+            android.util.Log.w("LocationService", "Location lookup failed", e)
+            null
         }
     }
     

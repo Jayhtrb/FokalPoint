@@ -47,8 +47,17 @@ cp .env.example .env          # optional: fill in real keys (see below)
 ./gradlew testDebugUnitTest   # unit + Robolectric UI tests
 ```
 
-CI (`.github/workflows/android.yml`) runs both on every push and pull request and
-uploads the debug APK as an artifact.
+CI (`.github/workflows/android.yml`) runs the build, unit tests and Android Lint on
+every push and pull request and uploads the debug APK as an artifact.
+
+`LiveBackendIntegrationTest` exercises live mode (auth, RLS, bookings, chat, search,
+password reset, token refresh) against a Supabase-compatible backend. It is skipped
+unless `FOKAL_LIVE_URL` and `FOKAL_LIVE_KEY` point at one — e.g. a local
+`supabase start` stack with the migrations applied:
+
+```bash
+FOKAL_LIVE_URL=http://127.0.0.1:54321 FOKAL_LIVE_KEY=<anon key> ./gradlew testDebugUnitTest
+```
 
 ### Demo mode vs. live mode
 

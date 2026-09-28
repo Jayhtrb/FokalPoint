@@ -16,7 +16,9 @@ import org.json.JSONObject
 
 class SearchRepository(private val context: Context, private val supabase: SupabaseClient) {
 
+    @android.annotation.SuppressLint("MissingPermission") // guarded below
     private suspend fun getCurrentLocation(): Location? {
+        if (!com.example.data.service.hasLocationPermission(context)) return null
         return withContext(Dispatchers.IO) {
             try {
                 val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)

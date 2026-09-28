@@ -43,9 +43,15 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     val isDemoMode: Boolean get() = !SupabaseConfig.isConfigured
 
+    /** True after opening a password-recovery link: the UI must collect a new password. */
+    private val _passwordRecovery = MutableStateFlow(false)
+    val passwordRecovery: StateFlow<Boolean> = _passwordRecovery.asStateFlow()
+
     init {
         viewModelScope.launch {
             val restored = runCatching { auth.restoreSession() }.getOrNull()
+            // A sign-in link may have been handled while we were refreshing; don't clobber it.
+            if (_authState.value != AuthState.Initializing) return@launch
             if (restored != null) onSignedIn(restored) else _authState.value = AuthState.Unauthenticated
         }
     }
@@ -110,18 +116,44 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     /** Called by MainActivity for `fokalpoint://login-callback…` redirects. */
     fun handleRedirect(uri: Uri) {
         if (uri.scheme != "fokalpoint") return
-        run { onSignedIn(auth.completeRedirect(uri)) }
+        val isRecovery = SupabaseAuth.parseRedirectParams(uri.fragment ?: uri.query ?: "")["type"] == "recovery"
+        run {
+            onSignedIn(auth.completeRedirect(uri))
+            _passwordRecovery.value = isRecovery
+        }
+    }
+
+    fun setNewPassword(password: String) {
+        validateCredentials("user@example.com", password, name = "-")?.let { _notice.value = it; return }
+        viewModelScope.launch {
+            try {
+                auth.updatePassword(password)
+                _passwordRecovery.value = false
+                _notice.value = "Your password has been updated."
+            } catch (e: Exception) {
+                _notice.value = friendlyMessage(e)
+            }
+        }
     }
 
     fun clearNotice() { _notice.value = null }
+
+    fun dismissPasswordRecovery() { _passwordRecovery.value = false }
 
     fun dismissError() {
         if (_authState.value is AuthState.Error) _authState.value = AuthState.Unauthenticated
     }
 
+    /** Leaves the email-code step (e.g. the user switches to Sign In instead). */
+    fun resetForm() {
+        val s = _authState.value
+        if (s is AuthState.Error || s is AuthState.AwaitingEmailConfirmation) _authState.value = AuthState.Unauthenticated
+    }
+
     fun signOut() {
         viewModelScope.launch {
             auth.signOut()
+            _passwordRecovery.value = false
             _user.value = null
             _authState.value = AuthState.Unauthenticated
         }

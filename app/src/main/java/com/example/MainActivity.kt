@@ -6,7 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -14,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.screens.AuthLoadingScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.FokalAppContent
+import com.example.ui.screens.SetNewPasswordDialog
 import com.example.ui.theme.FokalAppTheme
 import com.example.ui.viewmodel.AuthState
 import com.example.ui.viewmodel.AuthViewModel
@@ -49,6 +53,24 @@ class MainActivity : ComponentActivity() {
                             AuthLoadingScreen()
                         }
                         else -> AuthScreen(viewModel = authViewModel)
+                    }
+
+                    if (authState == AuthState.Authenticated) {
+                        val recovering by authViewModel.passwordRecovery.collectAsStateWithLifecycle()
+                        val notice by authViewModel.notice.collectAsStateWithLifecycle()
+                        if (recovering) {
+                            SetNewPasswordDialog(
+                                onSubmit = { authViewModel.setNewPassword(it) },
+                                onDismiss = { authViewModel.dismissPasswordRecovery() }
+                            )
+                        }
+                        notice?.let { message ->
+                            AlertDialog(
+                                onDismissRequest = { authViewModel.clearNotice() },
+                                confirmButton = { TextButton(onClick = { authViewModel.clearNotice() }) { Text("OK") } },
+                                text = { Text(message) }
+                            )
+                        }
                     }
                 }
             }

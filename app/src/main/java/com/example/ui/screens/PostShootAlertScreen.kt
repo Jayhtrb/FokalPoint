@@ -56,6 +56,32 @@ fun PostShootAlertScreen(
     val referenceImages = remember { mutableStateListOf<String>() }
     
     val context = LocalContext.current
+
+    fun detectCity() {
+        isDetectingLocation = true
+        viewModel.detectUserCity { city ->
+            selectedCity = city
+            isDetectingLocation = false
+            if (city != null) {
+                location = "${city.name}, ${city.state}"
+            } else {
+                android.widget.Toast.makeText(
+                    context, "Couldn't determine your location. Please enter your city.", android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) {
+            detectCity()
+        } else {
+            android.widget.Toast.makeText(
+                context, "Location permission denied. Enter your city manually.", android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
     val locationService = remember { LocationService(context) }
     val cities = remember { locationService.majorCities }
     val nearbyCities = remember(selectedCity, searchRadius) {
@@ -127,13 +153,15 @@ fun PostShootAlertScreen(
                         isDetecting = isDetectingLocation,
                         selectedCity = selectedCity,
                         onDetectLocation = {
-                            isDetectingLocation = true
-                            viewModel.detectUserCity { city ->
-                                selectedCity = city
-                                isDetectingLocation = false
-                                if (city != null) {
-                                    location = "${city.name}, ${city.state}"
-                                }
+                            if (com.example.data.service.hasLocationPermission(context)) {
+                                detectCity()
+                            } else {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                                    )
+                                )
                             }
                         }
                     )

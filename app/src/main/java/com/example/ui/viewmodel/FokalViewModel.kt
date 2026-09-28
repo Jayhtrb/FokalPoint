@@ -15,6 +15,7 @@ import com.example.data.network.GeminiClient
 import com.example.data.repository.FokalRepository
 import com.example.data.repository.SearchRepository
 import com.example.data.supabase.RemoteMappers
+import com.example.data.supabase.RemoteQueries
 import com.example.data.supabase.SupabaseAuth
 import com.example.data.supabase.SupabaseClient
 import com.example.data.supabase.SupabaseConfig
@@ -62,15 +63,20 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
 
     // Real-time blocked dates state map per photographer: creatorId -> List of blocked date strings (e.g. "2026-10-18")
     val blockedDatesState = MutableStateFlow<Map<String, List<String>>>(
-        if (SupabaseConfig.isConfigured) emptyMap() else mapOf(
-            "riya_sen_creator" to listOf("2026-10-18", "2026-11-22"),
-            "amit_sharma_creator" to listOf("2026-10-15", "2026-11-12"),
-            "kabir_singh_creator" to listOf("2026-10-16", "2026-10-17"),
-            "vikram_goa_creator" to listOf("2026-10-20"),
-            "manisha_mehta_creator" to listOf("2026-11-05"),
-            "current_creator_test" to listOf("2026-10-18", "2026-11-22")
-        )
+        if (SupabaseConfig.isConfigured) emptyMap() else demoBlockedDates()
     )
+
+    /** Sample unavailability for the demo creators, a few days out from today. */
+    private fun demoBlockedDates(): Map<String, List<String>> {
+        val d = com.example.ui.utils.BookingDates.upcomingDays(40)
+        return mapOf(
+            "riya_sen_creator" to listOf(d[3], d[24]),
+            "amit_sharma_creator" to listOf(d[1], d[14]),
+            "kabir_singh_creator" to listOf(d[2], d[3]),
+            "vikram_goa_creator" to listOf(d[6]),
+            "manisha_mehta_creator" to listOf(d[20])
+        )
+    }
 
     /** True when no Supabase backend is configured: all data is local sample data. */
     val isDemoMode: Boolean = !SupabaseConfig.isConfigured
@@ -83,7 +89,7 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
     private var usersById by mutableStateOf<Map<String, User>>(emptyMap())
 
     // Selection of date inside visual profile calendar
-    val selectedShootDate = MutableStateFlow("2026-10-15")
+    val selectedShootDate = MutableStateFlow(com.example.ui.utils.BookingDates.firstBookableDate())
 
     val notificationPreferences = MutableStateFlow(com.example.data.model.PayoutNotificationPreferences())
 
@@ -141,6 +147,7 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
         }
         startSupabaseChatSyncLoop()
         startSupabaseBlockedDatesSyncLoop()
+        startLiveActivityRefreshLoop()
     }
 
     /** Called by MainActivity whenever the authenticated user changes (null = signed out). */
@@ -165,12 +172,40 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
     /** Pulls the signed-in user's server data into the local cache. No-op in demo mode. */
     fun refreshRemoteData() {
         if (!rest.isAvailable) return
-        val me = currentUserId.value.ifEmpty { return }
+        currentUserId.value.ifEmpty { return }
         viewModelScope.launch {
             runCatching { searchRepository.refreshCatalog() }
                 .onFailure { android.util.Log.w(TAG, "Creator catalogue refresh failed", it) }
+            refreshActivity()
+        }
+    }
+
+    /**
+     * Bookings, inbox and (for creators) shoot alerts. Runs at sign-in and then
+     * periodically, so new booking requests and first messages from new customers appear.
+     */
+    suspend fun refreshActivity() {
+        if (!rest.isAvailable) return
+        val me = currentUserId.value.ifEmpty { return }
+        run {
             runCatching {
-                val rows = rest.select("bookings", "or" to "(customer_id.eq.$me,creator_id.eq.$me)", "order" to "created_at.desc")
+                val rows = rest.select(
+                    "messages",
+                    "or" to "(sender_id.eq.$me,receiver_id.eq.$me)",
+                    "order" to "created_at.desc",
+                    "limit" to "300"
+                )
+                val partners = mutableSetOf<String>()
+                for (i in 0 until rows.length()) {
+                    val message = RemoteMappers.message(rows.getJSONObject(i))
+                    repository.insertMessage(message)
+                    partners += message.senderId
+                    partners += message.receiverId
+                }
+                cacheProfiles(partners - me)
+            }.onFailure { android.util.Log.w(TAG, "Inbox refresh failed", it) }
+            runCatching {
+                val rows = rest.select("bookings", *RemoteQueries.bookingsInvolving(me))
                 val counterparties = mutableSetOf<String>()
                 for (i in 0 until rows.length()) {
                     val booking = RemoteMappers.booking(rows.getJSONObject(i))
@@ -188,11 +223,20 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun startLiveActivityRefreshLoop() {
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000L)
+                refreshActivity()
+            }
+        }
+    }
+
     private suspend fun cacheProfiles(ids: Collection<String>) {
         val missing = ids.filter { it.isNotBlank() && usersById[it]?.name.isNullOrBlank() }
         if (missing.isEmpty() || !rest.isAvailable) return
         runCatching {
-            val rows = rest.select("users", "id" to "in.(${missing.joinToString(",")})")
+            val rows = rest.select("users", "id" to RemoteQueries.idIn(missing))
             for (i in 0 until rows.length()) repository.insertUser(RemoteMappers.user(rows.getJSONObject(i)))
         }
     }
@@ -770,12 +814,7 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
                 val partnerId = selectedChatCreatorId.value ?: continue
                 if (myId.isEmpty() || !rest.isAvailable) continue
                 try {
-                    val rows = rest.select(
-                        "messages",
-                        "or" to "(and(sender_id.eq.$myId,receiver_id.eq.$partnerId),and(sender_id.eq.$partnerId,receiver_id.eq.$myId))",
-                        "order" to "created_at.asc",
-                        "limit" to "500"
-                    )
+                    val rows = rest.select("messages", *RemoteQueries.conversation(myId, partnerId))
                     for (i in 0 until rows.length()) repository.insertMessage(RemoteMappers.message(rows.getJSONObject(i)))
                 } catch (e: Exception) {
                     android.util.Log.d(TAG, "Chat sync skipped: ${e.message}")
@@ -1289,7 +1328,7 @@ class FokalViewModel(application: Application) : AndroidViewModel(application) {
                     while (ids.isNotEmpty()) {
                         if (rest.isAvailable) {
                             runCatching {
-                                val rows = rest.select("blocked_dates", "creator_id" to "in.(${ids.joinToString(",")})")
+                                val rows = rest.select("blocked_dates", "creator_id" to RemoteQueries.idIn(ids))
                                 val fetched = ids.associateWith { mutableListOf<String>() }
                                 for (i in 0 until rows.length()) {
                                     val row = rows.getJSONObject(i)

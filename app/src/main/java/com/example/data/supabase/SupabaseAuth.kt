@@ -73,6 +73,26 @@ class SupabaseAuth(private val sessions: SessionManager) {
         return persist(parseSession(post("/auth/v1/verify", body)))
     }
 
+    /** Sets a new password for the signed-in user (used after a recovery link). */
+    suspend fun updatePassword(newPassword: String) {
+        val session = sessions.getSession() ?: throw SupabaseException(401, "Not signed in")
+        if (session.isDemo || !SupabaseConfig.isConfigured) return
+        val token = validAccessToken() ?: throw SupabaseException(401, "Your reset link has expired. Please request a new one.")
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("${SupabaseConfig.url}/auth/v1/user")
+                .put(JSONObject().put("password", newPassword).toString().toRequestBody(json))
+                .header("apikey", SupabaseConfig.anonKey)
+                .header("Authorization", "Bearer $token")
+                .build()
+            Http.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw SupabaseException(response.code, errorMessage(response.body?.string().orEmpty(), response.code))
+                }
+            }
+        }
+    }
+
     suspend fun sendPasswordReset(email: String) {
         if (!SupabaseConfig.isConfigured) return
         post(

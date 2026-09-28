@@ -1,5 +1,6 @@
 package com.example.data.supabase
 
+import androidx.annotation.VisibleForTesting
 import com.example.BuildConfig
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -14,10 +15,15 @@ import java.util.concurrent.TimeUnit
 object SupabaseConfig {
     const val OAUTH_REDIRECT = "fokalpoint://login-callback"
 
-    val url: String get() = BuildConfig.SUPABASE_URL.trim().trimEnd('/')
-    val anonKey: String get() = BuildConfig.SUPABASE_ANON_KEY.trim()
+    /** Integration tests point the app at a local backend (url, anonKey). Never set in the app. */
+    @VisibleForTesting
+    @Volatile
+    var testOverride: Pair<String, String>? = null
 
-    val isConfigured: Boolean get() = isValid(url, anonKey)
+    val url: String get() = (testOverride?.first ?: BuildConfig.SUPABASE_URL).trim().trimEnd('/')
+    val anonKey: String get() = (testOverride?.second ?: BuildConfig.SUPABASE_ANON_KEY).trim()
+
+    val isConfigured: Boolean get() = testOverride != null || isValid(url, anonKey)
 
     fun isValid(url: String, anonKey: String): Boolean =
         url.startsWith("https://") &&

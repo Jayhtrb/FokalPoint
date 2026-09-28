@@ -2992,17 +2992,12 @@ fun CreatorDetailScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                var currentMonthSelected by remember { mutableStateOf("October 2026") }
-                val monthDates = if (currentMonthSelected == "October 2026") {
-                    // October 1, 2026 is a Thursday (4 blank starting items)
-                    List(4) { "" } + List(31) { (it + 1).toString() }
-                } else {
-                    // November 1, 2026 is a Sunday (0 blank starting items)
-                    List(30) { (it + 1).toString() }
-                }
-
-                val yearStr = "2026"
-                val monthNumericStr = if (currentMonthSelected == "October 2026") "10" else "11"
+                // This month and the next two, generated from today's date.
+                val calendarMonths = remember { com.example.ui.utils.BookingDates.upcomingMonths(3) }
+                var currentMonthSelected by remember { mutableStateOf(calendarMonths.first().label) }
+                val activeMonth = calendarMonths.firstOrNull { it.label == currentMonthSelected } ?: calendarMonths.first()
+                // Grid cells hold ISO dates ("" for leading blanks).
+                val monthDates = List(activeMonth.leadingBlanks) { "" } + activeMonth.dates
 
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -3025,8 +3020,8 @@ fun CreatorDetailScreen(
                             )
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val monthOpts = listOf("October 2026", "November 2026")
-                                monthOpts.forEach { m ->
+                                calendarMonths.forEach { month ->
+                                    val m = month.label
                                     val isMSelected = currentMonthSelected == m
                                     Box(
                                         modifier = Modifier
@@ -3036,7 +3031,7 @@ fun CreatorDetailScreen(
                                             .padding(horizontal = 8.dp, vertical = 6.dp)
                                     ) {
                                         Text(
-                                            text = m.split(" ")[0].substring(0, 3), // Oct, Nov
+                                            text = month.shortLabel,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isMSelected) Color.Black else MaterialTheme.colorScheme.onSurface
@@ -3079,11 +3074,11 @@ fun CreatorDetailScreen(
                                     if (day.isEmpty()) {
                                         Box(modifier = Modifier.weight(1f))
                                     } else {
-                                        val padDay = if (day.length == 1) "0$day" else day
-                                        val dateStr = "2026-$monthNumericStr-$padDay"
+                                        val dateStr = day
+                                        val isPastDay = com.example.ui.utils.BookingDates.isPast(dateStr)
                                         val isManualBlocked = manualBlocked.contains(dateStr)
                                         val isBookedFilled = acceptedBookedDates.contains(dateStr)
-                                        val isUnavailable = isManualBlocked || isBookedFilled
+                                        val isUnavailable = isManualBlocked || isBookedFilled || isPastDay
                                         val isSelected = selectedDateVal == dateStr
 
                                         Box(
@@ -3104,6 +3099,7 @@ fun CreatorDetailScreen(
                                                     width = 1.dp,
                                                     color = when {
                                                         isSelected -> AmberGold
+                                                        isPastDay -> Color.Transparent
                                                         isUnavailable -> Color.Red.copy(alpha = 0.4f)
                                                         else -> Color.Transparent
                                                     },
@@ -3111,8 +3107,12 @@ fun CreatorDetailScreen(
                                                 )
                                                 .clickable {
                                                     if (isUnavailable) {
-                                                        val reason = if (isBookedFilled) "Fully Booked (Accepted Shoot)" else "Blocked by Photographer"
-                                                        Toast.makeText(context, "$currentMonthSelected $day is $reason", Toast.LENGTH_SHORT).show()
+                                                        val reason = when {
+                                                            isPastDay -> "in the past"
+                                                            isBookedFilled -> "Fully Booked (Accepted Shoot)"
+                                                            else -> "Blocked by Photographer"
+                                                        }
+                                                        Toast.makeText(context, "${com.example.ui.utils.BookingDates.chipLabel(dateStr)} is $reason", Toast.LENGTH_SHORT).show()
                                                     } else {
                                                         viewModel.selectedShootDate.value = dateStr
                                                         Toast.makeText(context, "Selected Slot: $dateStr", Toast.LENGTH_SHORT).show()
@@ -3123,16 +3123,17 @@ fun CreatorDetailScreen(
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Text(
-                                                    text = day,
+                                                    text = day.takeLast(2).trimStart('0'),
                                                     fontSize = 12.sp,
-                                                    fontWeight = if (isSelected || isUnavailable) FontWeight.Bold else FontWeight.Medium,
+                                                    fontWeight = if (isSelected || (isUnavailable && !isPastDay)) FontWeight.Bold else FontWeight.Medium,
                                                     color = when {
                                                         isSelected -> Color.Black
+                                                        isPastDay -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                                                         isUnavailable -> Color.Red
                                                         else -> MaterialTheme.colorScheme.onSurface
                                                     }
                                                 )
-                                                if (isUnavailable) {
+                                                if (isUnavailable && !isPastDay) {
                                                     Box(
                                                         modifier = Modifier
                                                             .size(4.dp)
@@ -3477,7 +3478,9 @@ fun BookingSchedulerScreen(
 
             // Date Selection input
             Text("Pick Date (Golden Hour)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            val dates = (listOf("2026-10-14", "2026-10-15", "2026-10-16", "2026-11-02", "2026-11-03") + shootDate).distinct().sorted()
+            val dates = (com.example.ui.utils.BookingDates.upcomingDays(14) + shootDate)
+                .filterNot { com.example.ui.utils.BookingDates.isPast(it) }
+                .distinct().sorted()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -5403,7 +5406,7 @@ fun CreatorCalendarTab(
     viewModel: FokalViewModel,
     onNavigateToChat: (String) -> Unit
 ) {
-    var selectedCalendarDate by remember { mutableStateOf("2026-10-15") }
+    var selectedCalendarDate by remember { mutableStateOf(com.example.ui.utils.BookingDates.firstBookableDate()) }
     val currentCreatorId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val blockedDatesMap by viewModel.blockedDatesState.collectAsStateWithLifecycle()
     val blockedDates = blockedDatesMap[currentCreatorId] ?: emptyList()
@@ -5427,7 +5430,7 @@ fun CreatorCalendarTab(
         Spacer(modifier = Modifier.height(20.dp))
 
         // Planner block cards Date Picker Mock interface
-        val plannerDates = listOf("2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18")
+        val plannerDates = com.example.ui.utils.BookingDates.upcomingDays(14)
         
         Text("October 2026 Planner Timeline", fontWeight = FontWeight.Bold, fontSize = 13.sp)
         

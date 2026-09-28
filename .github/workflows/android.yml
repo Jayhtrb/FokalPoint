@@ -22,6 +22,8 @@ jobs:
         run: ./gradlew assembleDebug --stacktrace
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
+      - name: Android Lint
+        run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         if: always()
         with:
