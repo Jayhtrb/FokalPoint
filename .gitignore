@@ -21,3 +21,4 @@ debug.keystore
 debug.keystore.base64
 .build-outputs/
 
+store/*.apk
