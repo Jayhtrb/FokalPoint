@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Theme.Fokal" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fokal_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 
-    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+    <style name="Theme.Fokal.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/fokal_void</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/fokal_violet</item>
+        <item name="postSplashScreenTheme">@style/Theme.Fokal</item>
+    </style>
 </resources>

@@ -1,144 +1,61 @@
 # FokalPoint
 
-> **Every Moment in Focus.**
-> Airbnb + Instagram + Urban Company for photography & videography.
+> **Every moment, in focus.** Book photographers and filmmakers — or get booked.
 
-FokalPoint is a modern Android application built with Kotlin and Jetpack Compose. It connects clients with professional creators (photographers, videographers) and offers portfolio showcases, shoot booking, creator management, payout dashboards, and AI-assisted workflows.
+A premium Android marketplace (Kotlin + Jetpack Compose, "Aurora Noir" design) connecting clients with
+photographers and videographers, backed by Supabase. Monetized with a **Creator Pro** subscription
+through Google Play Billing.
 
----
+| Discover | Creator profile | Bookings | Creator Studio | Creator Pro |
+|---|---|---|---|---|
+| ![](store/screenshots/02_discover.jpg) | ![](store/screenshots/03_creator_profile.jpg) | ![](store/screenshots/05_bookings.jpg) | ![](store/screenshots/08_creator_studio.jpg) | ![](store/screenshots/09_creator_pro.jpg) |
 
-## 📱 Features
+## Features
 
-- **Creator & Portfolio Showcase**: Explore creator profiles, image galleries, services, and rates.
-- **Shoot Booking & Alerts**: Request shoots, manage calendar bookings, and receive real-time notifications.
-- **Payout Dashboard**: Financial tracking and payout management for creators.
-- **Authentication**: Supabase email/password, email OTP, Google & GitHub OAuth, password reset, persisted + auto-refreshed sessions.
-- **Supabase Backend**: Bookings, chat, availability, payout methods and shoot alerts sync with Row Level Security and server-side guard triggers.
-- **Gemini AI Features**: Server-side AI integration for intelligent content assistance.
+**Clients** — discover featured & top-rated creators, filter by style / city / budget, view portfolios,
+packages (Essential / Signature / Luxe), reviews and live availability; request a booking; pay the
+creator directly via any UPI app once accepted; chat; review after the shoot; save favourites; post a
+shoot request for creators to answer.
 
----
+**Creators** — Studio dashboard (earnings chart, requests, rating), accept/decline/complete bookings,
+confirm payments, availability calendar, portfolio uploads, shoot leads, profile & pricing editor,
+private UPI ID shown only to accepted clients.
 
-## 🛠 Tech Stack & Architecture
+**Creator Pro** (Play subscription `creator_pro`) — featured placement, unlimited leads (free: 3),
+unlimited portfolio (free: 12 photos), Pro badge. All perks are enforced by the database, and
+purchases are verified server-side with the Google Play Developer API.
 
-- **Language**: Kotlin 100%
-- **UI Framework**: Jetpack Compose (Material Design 3)
-- **Architecture**: MVVM + Clean Architecture principles
-- **State Management**: StateFlow, ViewModel, `collectAsStateWithLifecycle`
-- **Asynchronous Processing**: Kotlin Coroutines & Flow
-- **Build System**: Gradle (Kotlin DSL - `build.gradle.kts`)
-- **Backend / Database**: Supabase (migrations provided under `supabase/migrations`), Room / Local Persistence
-- **AI Integration**: Google Gemini API via server-side endpoints
+**Platform** — email/password + 6-digit email code, Google & GitHub sign-in, password reset,
+in-app account deletion, background notifications for new requests and messages, offline demo mode.
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Android Studio** Ladybug or newer, **JDK 17+** (CI uses 21)
-- Android SDK platform **36.1** (`compileSdk`), min SDK 24
-- The Gradle wrapper is committed — use `./gradlew`, no local Gradle install needed.
-
-### Build & test
+## Run it
 
 ```bash
-cp .env.example .env          # optional: fill in real keys (see below)
-./gradlew assembleDebug       # APK in app/build/outputs/apk/debug/
-./gradlew testDebugUnitTest   # unit + Robolectric UI tests
+cp .env.example .env          # optional: add Supabase keys; placeholders = demo mode
+./gradlew assembleDebug       # app/build/outputs/apk/debug/
+./gradlew testDebugUnitTest   # unit, UI flow and (optional) live-backend tests
+./gradlew recordRoborazziDebug --tests com.fokalpoint.app.StoreScreenshots   # re-render store/screenshots
 ```
 
-CI (`.github/workflows/android.yml`) runs the build, unit tests and Android Lint on
-every push and pull request and uploads the debug APK as an artifact.
+**Demo mode** (no Supabase keys): any email/password works and a sample marketplace with bundled photos
+is preloaded — great for trying every flow offline. **Live mode**: set `SUPABASE_URL` /
+`SUPABASE_ANON_KEY`.
 
-`LiveBackendIntegrationTest` exercises live mode (auth, RLS, bookings, chat, search,
-password reset, token refresh) against a Supabase-compatible backend. It is skipped
-unless `FOKAL_LIVE_URL` and `FOKAL_LIVE_KEY` point at one — e.g. a local
-`supabase start` stack with the migrations applied:
+## Publish
 
-```bash
-FOKAL_LIVE_URL=http://127.0.0.1:54321 FOKAL_LIVE_KEY=<anon key> ./gradlew testDebugUnitTest
-```
+See **[store/PLAY_STORE.md](store/PLAY_STORE.md)** — backend deploy commands, signing, Play Console
+subscription setup, listing copy, data-safety answers, graphics and a launch checklist.
+Release bundles are built by `.github/workflows/release.yml`.
 
-### Demo mode vs. live mode
+## Architecture
 
-| | **Demo mode** (default) | **Live mode** |
-|---|---|---|
-| When | `SUPABASE_URL` / `SUPABASE_ANON_KEY` missing or placeholders | Real Supabase project configured in `.env` |
-| Accounts | Any email + password creates a local account | Supabase Auth (email/password, email OTP, Google, GitHub, password reset) |
-| Data | Sample creators, bookings, chats on-device (Room) | Your Supabase database, cached in Room |
-| Payments / chat replies | Simulated, labelled "(demo)" | **Never simulated** – see *Payments* below |
+- `ui/theme`, `ui/components` — Aurora Noir design system (Space Grotesk + Inter, glass surfaces)
+- `ui/screens`, `ui/navigation` — Compose screens and navigation
+- `ui/viewmodel` — `AuthViewModel` (sessions), `FokalViewModel` (marketplace), `ProViewModel` (billing)
+- `data/supabase` — GoTrue auth, PostgREST/Storage/Functions client, mappers
+- `data/billing` — Google Play Billing; `data/sync` — background notifications
+- Room is the on-device cache; Supabase is the source of truth in live mode
+- `supabase/migrations` — schema, RLS and guard triggers; `supabase/functions` — Pro verification, account deletion
 
-A banner on the sign-in screen tells you which mode you're in.
-
-### Setting up the Supabase backend (live mode)
-
-1. Create a Supabase project and put its URL and anon key in `.env`.
-2. Apply the migrations in `supabase/migrations/` in filename order
-   (`supabase db push`, or paste them into the SQL editor).
-3. **Auth → URL configuration**: add `fokalpoint://login-callback` to *Redirect URLs*.
-4. **Auth → Providers**: enable Google / GitHub if you want social sign-in.
-5. Optional: to let users type the 6-digit code instead of tapping the confirmation
-   link, include `{{ .Token }}` in the *Confirm signup* email template.
-
-The database enforces the business rules, not the app: clients cannot set their own
-`rating` / `verified` badge, change a booking's price or dates after creation, mark a
-booking paid (only its creator can confirm receipt), book a creator's blocked date,
-insert payment records, or send messages as someone else. Creator search goes through
-the parameterized `search_creators()` function.
-
-### Payments
-
-No payment gateway is integrated yet. In live mode, checkout sends a **booking
-request**; the creator accepts it, the customer pays them (e.g. via UPI), and the
-creator marks it complete/paid. Integrating Razorpay or Stripe requires a merchant
-account and a server-side webhook (a Supabase Edge Function running with the service
-role can update `payments` / `bookings.payment_status`, which the guard triggers allow).
-
-### AI assistant
-
-`GEMINI_API_KEY` is compiled into the app via `BuildConfig`, so anyone with the APK can
-extract it. Use a key restricted to the Android app (package + SHA-1) in the Google
-Cloud console, or move the call behind a Supabase Edge Function before release.
-Without a key, Fokal AI returns built-in offline suggestions.
-
-### Release builds
-
-Release signing is enabled only when `KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD`
-(and optionally `KEY_ALIAS`, default `upload`) are set in the environment.
-
----
-
-## 📁 Repository Structure
-
-```
-.
-├── app/                          # Main Android application module
-│   ├── src/main/java/com/example/# Kotlin source code (UI, ViewModels, Services, Data)
-│   ├── src/main/res/             # Android resources (Strings, Drawables, Layouts, Values)
-│   └── build.gradle.kts          # Module-level Gradle configuration
-├── gradle/                       # Gradle wrapper files and version catalogs
-│   └── libs.versions.toml        # Dependency versions and library declarations
-├── supabase/                     # Database migrations & schemas
-│   └── migrations/               # SQL migrations (apply in filename order)
-├── .github/workflows/            # CI: build + unit tests
-├── build.gradle.kts              # Root build script
-├── settings.gradle.kts           # Root settings script
-├── .env.example                  # Environment variables template
-├── .gitignore                    # Git ignore file excluding build artifacts and secrets
-└── README.md                     # Project documentation
-```
-
----
-
-## 🔒 Security & Excluded Files
-
-To protect sensitive credentials:
-- Secrets, API keys, passwords, and private tokens are excluded via `.gitignore`.
-- Keystore files (`debug.keystore`, `debug.keystore.base64`) are intentionally excluded.
-- Environment configurations should be managed via `.env` files locally or through environment variables in your deployment pipeline.
-
----
-
-## 📄 License
-
-This project is proprietary and intended for internal or authorized use.
+`LiveBackendIntegrationTest` runs the real app code against a Supabase-compatible backend when
+`FOKAL_LIVE_URL` / `FOKAL_LIVE_KEY` are set (skipped otherwise).
