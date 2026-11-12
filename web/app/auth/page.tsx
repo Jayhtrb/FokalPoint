@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle2, LockKeyhole, Mail } from "lucide-react";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
@@ -9,6 +10,8 @@ type Mode = "signin" | "signup";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<Mode>("signin");
+  const [returnTo, setReturnTo] = useState("/");
+  useEffect(() => { const value = new URLSearchParams(window.location.search).get("next") || "/"; setReturnTo(value.startsWith("/") && !value.startsWith("//") ? value : "/"); }, []);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -16,10 +19,7 @@ export default function AuthPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const nextPath = () => {
-    const value = new URLSearchParams(window.location.search).get("next") || "/";
-    return value.startsWith("/") && !value.startsWith("//") ? value : "/";
-  };
+  const nextPath = () => returnTo;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,7 +71,7 @@ export default function AuthPage() {
         <button className="fp-btn fp-btn-gold auth-submit" type="submit" disabled={busy}>{busy?"Please wait…":mode==="signin"?"Sign in securely":"Create your account"} <ArrowRight size={16}/></button>
       </form>
       <div className="auth-privacy"><LockKeyhole size={14}/> Your account is protected with Supabase Auth.</div>
-      <div className="auth-guest"><span>Just browsing or booking once?</span><Link href={nextPath() === "/" ? "/discover" : nextPath()}>Continue without an account</Link></div>
+      <div className="auth-guest"><span>Just browsing or booking once?</span><Link href={returnTo === "/" ? "/discover" : returnTo}>Continue without an account</Link></div>
     </section>
     <footer className="booking-footer"><Link href="/" className="fp-brand"><span className="fp-mark">●</span>FokalPoint</Link><span>Every Moment in Focus.</span><small>Secure by design · Made for creative people</small></footer>
   </main>;
