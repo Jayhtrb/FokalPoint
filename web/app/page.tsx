@@ -25,7 +25,7 @@ const occasions = [
 
 export default function Home() {
   const [query,setQuery]=useState("");
-  const [city,setCity]=useState("Hyderabad");
+  const [city,setCity]=useState("Anywhere");
   const [category,setCategory]=useState("All");
   const [saved,setSaved]=useState<string[]>([]);
   const filtered=useMemo(()=>creators.filter(c=>{
