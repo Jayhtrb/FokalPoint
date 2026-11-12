@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Copy, CreditCard, LockKeyhole, MapPin, ShieldCheck, Smartphone, Wallet } from "lucide-react";
 
 const creators:Record<string,{name:string;role:string;city:string;avatar:string;packages:{name:string;detail:string;price:number;duration:string}[]}> = {
@@ -28,7 +28,7 @@ export default function BookingPage({params}:{params:Promise<{slug:string}>}) {
   const [bookingId,setBookingId]=useState("FP-2026-7824");
   const [copied,setCopied]=useState(false);
 
-  useMemo(()=>{params.then(({slug:s})=>{setSlug(s);setLoaded(true);});},[params]);
+  useEffect(()=>{params.then(({slug:s})=>{setSlug(s);setLoaded(true);});},[params]);
   const creator=creators[slug]??creators["arjun-menon"];
   const selected=creator.packages[packageIndex];
   const tax=Math.round(selected.price*.18);
