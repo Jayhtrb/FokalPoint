@@ -27,3 +27,8 @@ npm run dev
 ```
 
 Copy `.env.example` to `.env.local` and configure the Supabase project.
+
+
+## Marketplace UI
+
+The `ui/champagne-espresso-v1` branch includes the Champagne & Espresso discovery experience, creator profiles, and a booking/checkout preview at `/booking/[slug]`. Payment processing and persisted booking creation are not enabled in this preview.
