@@ -1,102 +1,78 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, CheckCircle2, Heart, MessageCircle, Search, Sparkles, Star, Users, WalletCards } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, ChevronDown, Heart, MapPin, Search, SlidersHorizontal, Star, Video, Camera, Brush, MonitorPlay, Mic2, Grid2X2 } from "lucide-react";
 
 const creators = [
-  { name: "Rhea Kapoor", role: "Photographer · Videographer", city: "Bengaluru", rating: 5.0, reviews: 324, price: "₹18,000", verified: true, category: "Photo", image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=900&q=85" },
-  { name: "Amit Sharma", role: "Photographer", city: "Mumbai", rating: 4.9, reviews: 120, price: "₹8,000", verified: true, category: "Photo", image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=85" },
-  { name: "Priya Patel", role: "Makeup Artist", city: "Hyderabad", rating: 4.8, reviews: 98, price: "₹5,000", verified: true, category: "Events", image: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=85" },
-  { name: "Rahul Verma", role: "Videographer", city: "Delhi", rating: 4.9, reviews: 156, price: "₹12,000", verified: true, category: "Video", image: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=900&q=85" },
-  { name: "Sneha Kapoor", role: "Content Creator", city: "Pune", rating: 4.7, reviews: 86, price: "₹10,000", verified: false, category: "More", image: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=900&q=85" },
-  { name: "Kabir Studios", role: "Photo · Film · Reels", city: "Bengaluru", rating: 5.0, reviews: 211, price: "₹25,000", verified: true, category: "Video", image: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=900&q=85" },
+  { slug:"arjun-menon", name:"Arjun Menon", role:"Photographer · Videographer", city:"Hyderabad", rating:"4.9", reviews:128, price:"₹15,000", verified:true, image:"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=85", work:"Wedding · Editorial" },
+  { slug:"wedding-lens", name:"The Wedding Lens", role:"Wedding Photography", city:"Hyderabad", rating:"4.8", reviews:216, price:"₹35,000", verified:true, image:"https://images.unsplash.com/photo-1537633552985-df8429e8048b?auto=format&fit=crop&w=900&q=85", work:"Wedding · Pre-wedding" },
+  { slug:"rhea-captures", name:"Rhea Captures", role:"Portrait Photographer", city:"Bengaluru", rating:"4.9", reviews:94, price:"₹12,000", verified:true, image:"https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=85", work:"Portrait · Fashion" },
+  { slug:"frame-motion", name:"Frame & Motion", role:"Videographer · Editor", city:"Mumbai", rating:"4.8", reviews:167, price:"₹25,000", verified:true, image:"https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=900&q=85", work:"Film · Commercial" },
+  { slug:"kabir-studios", name:"Kabir Studios", role:"Photo · Film · Reels", city:"Pune", rating:"5.0", reviews:211, price:"₹22,000", verified:true, image:"https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=900&q=85", work:"Brand · Events" },
+  { slug:"maya-stories", name:"Maya Stories", role:"Content Creator", city:"Hyderabad", rating:"4.9", reviews:86, price:"₹10,000", verified:false, image:"https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=85", work:"Lifestyle · Social" },
+];
+const categories = [
+  {label:"Photography",icon:Camera},{label:"Videography",icon:Video},{label:"Makeup & Styling",icon:Brush},{label:"Editing & Post",icon:MonitorPlay},{label:"Events & Production",icon:Mic2},{label:"All services",icon:Grid2X2}
+];
+const occasions = [
+  {name:"Weddings",image:"https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=900&q=85"},
+  {name:"Pre-weddings",image:"https://images.unsplash.com/photo-1532712938310-34cb3982ef74?auto=format&fit=crop&w=900&q=85"},
+  {name:"Events",image:"https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=900&q=85"},
+  {name:"Portraits",image:"https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=85"},
+  {name:"Commercial",image:"https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=85"},
 ];
 
-const categories = ["All", "Photo", "Video", "Events", "More"];
-
 export default function Home() {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All");
-  const [city, setCity] = useState("All cities");
-  const [saved, setSaved] = useState<string[]>([]);
+  const [query,setQuery]=useState("");
+  const [city,setCity]=useState("Anywhere");
+  const [category,setCategory]=useState("All");
+  const [saved,setSaved]=useState<string[]>([]);
+  const filtered=useMemo(()=>creators.filter(c=>{
+    const q=query.trim().toLowerCase();
+    return (!q || (c.name+" "+c.role+" "+c.city+" "+c.work).toLowerCase().includes(q)) &&
+      (city==="Anywhere" || c.city===city) &&
+      (category==="All" || c.role.toLowerCase().includes(category.toLowerCase().replace("photography","photographer").replace("videography","video")));
+  }),[query,city,category]);
+  const toggle=(slug:string)=>setSaved(v=>v.includes(slug)?v.filter(x=>x!==slug):[...v,slug]);
+  return <main className="fp-shell">
+    <header className="fp-nav fp-wrap">
+      <Link href="/" className="fp-brand"><span className="fp-mark">●</span>FokalPoint</Link>
+      <nav><a className="active" href="#discover">Discover</a><a href="#creators">Creators</a><a href="#services">Services⌄</a><a href="#for-creators">For Creators</a></nav>
+      <div className="fp-nav-actions"><button className="icon-btn" aria-label="Search"><Search size={18}/></button><Link className="fp-btn fp-btn-outline" href="/discover">Explore</Link><Link className="fp-btn fp-btn-gold" href="#for-creators">Join as a Creator</Link></div>
+    </header>
 
-  const filtered = useMemo(() => creators.filter((creator) => {
-    const q = query.trim().toLowerCase();
-    const matchesQuery = !q || `${creator.name} ${creator.role} ${creator.city}`.toLowerCase().includes(q);
-    const matchesCategory = category === "All" || creator.category === category;
-    const matchesCity = city === "All cities" || creator.city === city;
-    return matchesQuery && matchesCategory && matchesCity;
-  }), [query, category, city]);
+    <section className="fp-hero fp-wrap">
+      <div className="fp-hero-copy">
+        <span className="eyebrow">THE CREATIVE PROFESSIONALS MARKETPLACE</span>
+        <h1>Every Moment<br/>in <em>Focus.</em></h1>
+        <p>Discover and book photographers, videographers and creative professionals who bring your ideas to life.</p>
+        <div className="fp-hero-actions"><a className="fp-btn fp-btn-gold" href="#creators">Explore creators <ArrowRight size={16}/></a><a className="fp-btn fp-btn-outline" href="#how">How it works</a></div>
+      </div>
+      <div className="fp-hero-image"><img src="https://images.unsplash.com/photo-1537633552985-df8429e8048b?auto=format&fit=crop&w=1400&q=90" alt="A couple sharing a quiet moment on their wedding day"/><div className="image-caption"><span>REAL STORIES. BEAUTIFULLY TOLD.</span><strong>Made for the moments that matter.</strong></div></div>
+      <div className="fp-searchbar">
+        <div className="fp-search-input"><Search size={19}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search creators, styles or services…"/></div>
+        <label className="fp-location"><MapPin size={17}/><select value={city} onChange={e=>setCity(e.target.value)}><option>Hyderabad</option><option>Bengaluru</option><option>Mumbai</option><option>Pune</option><option>Anywhere</option></select><ChevronDown size={14}/></label>
+        <a className="fp-search-submit" href="#creators">Find a creator <ArrowRight size={16}/></a>
+      </div>
+    </section>
 
-  const toggleSaved = (name: string) => setSaved((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
+    <section className="fp-wrap fp-categories" id="services">
+      {categories.map(({label,icon:Icon})=><button key={label} className={category===label?"selected":""} onClick={()=>setCategory(label==="All services"?"All":label)}><span><Icon size={20}/></span>{label}</button>)}
+    </section>
 
-  return (
-    <main className="shell">
-      <header className="container nav">
-        <a className="logo" href="#top"><span className="logoMark" />FokalPoint</a>
-        <nav className="navLinks" aria-label="Main navigation">
-          <a href="#discover">Discover</a><a href="#how">How it works</a><a href="#creators">For creators</a><a href="#about">About</a>
-        </nav>
-        <div className="navActions"><button className="btn btnGhost">Sign in</button><button className="btn btnPrimary">Join FokalPoint</button></div>
-      </header>
+    <section className="fp-wrap fp-section" id="creators">
+      <div className="fp-section-head"><div><span className="eyebrow">A GOOD PLACE TO START</span><h2>Meet your next creative partner.</h2><p>Distinctive talent, thoughtful craft, work worth remembering.</p></div><Link href="/discover" className="fp-text-link">View all creators <ArrowRight size={16}/></Link></div>
+      <div className="fp-creator-grid">{filtered.slice(0,4).map(c=><article className="fp-creator-card" key={c.slug}><Link href={"/creators/"+c.slug} className="fp-card-image"><img src={c.image} alt={c.name}/><span className="fp-card-type">{c.work}</span></Link><button className={"fp-save "+(saved.includes(c.slug)?"saved":"")} onClick={()=>toggle(c.slug)} aria-label={"Save "+c.name}><Heart size={17} fill={saved.includes(c.slug)?"currentColor":"none"}/></button><div className="fp-card-body"><div className="fp-card-name"><Link href={"/creators/"+c.slug}>{c.name}</Link>{c.verified&&<span className="fp-verified"><Check size={11}/></span>}</div><p>{c.role}</p><div className="fp-card-meta"><span><Star size={13} fill="currentColor"/> {c.rating} <small>({c.reviews})</small></span><span>From <strong>{c.price}</strong></span></div><div className="fp-card-city"><MapPin size={12}/>{c.city}</div></div></article>)}</div>
+      {filtered.length===0&&<div className="fp-empty">No creators match those filters yet. Try another location or search term.</div>}
+    </section>
 
-      <section id="top" className="container hero">
-        <div>
-          <h1>The right creator.<br />The right project.<br /><span className="gradient">All in focus.</span></h1>
-          <p>FokalPoint brings photographers, videographers and creative professionals together with the people who need exceptional work done.</p>
-          <div className="heroActions"><a className="btn btnPrimary" href="#discover">Explore creators <ArrowRight size={16} /></a><a className="btn" href="#how">See how it works</a></div>
-          <div className="stats">
-            <div className="stat"><strong>1,000+</strong><span>Verified creators</span></div><div className="stat"><strong>5,000+</strong><span>Projects completed</span></div><div className="stat"><strong>98%</strong><span>Client satisfaction</span></div><div className="stat"><strong>50+</strong><span>Cities covered</span></div>
-          </div>
-        </div>
-        <div className="heroVisual" aria-label="FokalPoint product preview">
-          <img className="heroPhoto" src="https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1100&q=85" alt="Photographer working at sunset" />
-          <div className="creatorPanel">
-            <div className="panelHeader"><strong>Find the perfect creator</strong><span style={{color:"#777"}}>Client workspace</span></div>
-            <div className="searchBox"><Search size={13} /><span>What are you looking for?</span><span>Search</span></div>
-            <div className="categoryRow"><div className="category">Photography<br /><small>360+ creators</small></div><div className="category">Videography<br /><small>280+ creators</small></div><div className="category">Events<br /><small>180+ creators</small></div></div>
-            <div style={{fontSize:12,fontWeight:600,marginBottom:9}}>Top creators</div>
-            <div className="creatorGrid">{creators.slice(0,3).map(c => <div className="creatorCard" key={c.name}><img src={c.image} alt=""/><div><strong>{c.name}</strong><br/><small>{c.role}</small></div></div>)}</div>
-          </div>
-          <div className="phone"><img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=85" alt="Creator profile preview" /></div>
-        </div>
-      </section>
+    <section className="fp-wrap fp-section fp-occasion-section">
+      <div className="fp-section-head"><div><span className="eyebrow">FIND THE RIGHT FIT</span><h2>What are you creating?</h2><p>Start with the occasion. We’ll help you find the people.</p></div><a className="fp-text-link" href="#creators">Explore all <ArrowRight size={16}/></a></div>
+      <div className="fp-occasion-grid">{occasions.map(o=><a href="#creators" className="fp-occasion" key={o.name}><img src={o.image} alt=""/><span>{o.name}<ArrowRight size={15}/></span></a>)}</div>
+    </section>
 
-      <section id="discover" className="container section">
-        <div className="sectionTitle"><div><h2>Discover people who get your vision.</h2></div><p>Search by skill, location or project type. Save your favourites, compare portfolios and start a conversation before you book.</p></div>
-        <div className="discovery">
-          <aside className="filters">
-            <h3>Refine your search</h3>
-            <label className="filterLabel" htmlFor="search">Search</label>
-            <div className="searchBox"><Search size={14}/><input id="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, skill, city..." style={{background:'transparent',border:0,outline:0,color:'#fff',width:'100%'}} /></div>
-            <label className="filterLabel" htmlFor="city">Location</label>
-            <select className="filterInput" id="city" value={city} onChange={(e) => setCity(e.target.value)}><option>All cities</option><option>Mumbai</option><option>Delhi</option><option>Bengaluru</option><option>Hyderabad</option><option>Pune</option></select>
-            <label className="filterLabel">Category</label>
-            <div style={{display:'grid',gap:7}}>{categories.map(item => <button key={item} onClick={() => setCategory(item)} className="btn" style={{textAlign:'left',padding:'9px 10px',background:item===category?'rgba(242,38,117,.12)':'transparent',borderColor:item===category?'rgba(242,38,117,.35)':'var(--line)'}}>{item}</button>)}</div>
-          </aside>
-          <div className="creatorResults" id="creators">
-            {filtered.map((creator) => <article className="bigCreator" key={creator.name}>
-              <div style={{position:'relative'}}><img src={creator.image} alt={`${creator.name}, ${creator.role}`} /><button aria-label={`Save ${creator.name}`} onClick={() => toggleSaved(creator.name)} style={{position:'absolute',right:10,top:10,width:34,height:34,borderRadius:10,border:'1px solid rgba(255,255,255,.16)',background:'rgba(0,0,0,.45)',color:saved.includes(creator.name)?'#ff4e90':'#fff',display:'grid',placeItems:'center'}}><Heart size={16} fill={saved.includes(creator.name)?'currentColor':'none'}/></button></div>
-              <div className="bigCreatorBody">{creator.verified && <span className="badge"><CheckCircle2 size={11} style={{marginRight:4}}/>Verified</span>}<h3>{creator.name}</h3><div className="meta">{creator.role}</div><div className="meta">{creator.city} · <Star size={10} fill="#ffb43d" color="#ffb43d" style={{verticalAlign:'-1px'}}/> {creator.rating} ({creator.reviews})</div><div className="price"><span>Starting from</span><strong>{creator.price}</strong></div></div>
-            </article>)}
-            {filtered.length === 0 && <div style={{gridColumn:'1/-1',padding:'50px 20px',textAlign:'center',color:'var(--muted)'}}>No creators match those filters. Try a broader search.</div>}
-          </div>
-        </div>
-      </section>
-
-      <section id="how" className="container section">
-        <div className="sectionTitle"><h2>From idea to done.</h2><p>FokalPoint turns the messy part of finding creative talent into a clear, trusted workflow.</p></div>
-        <div className="workflow">
-          {[['01','Discover','Find the right specialist with portfolios, reviews, location and availability in one place.'],['02','Connect','Chat directly, share your brief and align on scope, dates and expectations.'],['03','Book & pay','Confirm the project with transparent pricing and secure payment handling.'],['04','Create','Get the work done, review the outcome and build relationships for what comes next.']].map(([num,title,copy]) => <div className="workflowItem" key={num}><span className="workflowNum">{num}</span><h3>{title}</h3><p>{copy}</p></div>)}
-        </div>
-      </section>
-
-      <section id="about" className="container section creatorSpotlight">
-        <img className="spotlightImage" src="https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=1200&q=85" alt="Creative professional on location" />
-        <div className="spotlightCopy"><h2>Built for creators. Designed for momentum.</h2><p>FokalPoint is not just another directory. It is a workspace for the entire creative relationship, from first search to final delivery.</p><ul className="featureList"><li><span className="featureIcon"><Sparkles size={15}/></span>AI-assisted discovery and matching</li><li><span className="featureIcon"><MessageCircle size={15}/></span>Real-time conversations and project briefs</li><li><span className="featureIcon"><CalendarDays size={15}/></span>Availability-aware booking</li><li><span className="featureIcon"><WalletCards size={15}/></span>Secure payments and creator payouts</li><li><span className="featureIcon"><Users size={15}/></span>Profiles that turn work into reputation</li></ul><button className="btn btnPrimary">Create your FokalPoint <ArrowRight size={16}/></button></div>
-      </section>
-
-      <footer className="footer"><div className="container footerInner"><span>© 2026 FokalPoint. Create · Connect · Grow.</span><span>Built for the people who bring ideas to life.</span></div></footer>
-    </main>
-  );
+    <section className="fp-wrap fp-creator-banner" id="for-creators"><div><span className="eyebrow">FOR THE PEOPLE BEHIND THE LENS</span><h2>Your work deserves<br/><em>to be discovered.</em></h2><p>Build your profile, showcase your portfolio and grow your creative business with FokalPoint.</p><a className="fp-btn fp-btn-gold" href="#top">Create your creator profile <ArrowRight size={16}/></a></div><img src="https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1000&q=85" alt="Professional camera on a creative set"/></section>
+    <footer className="fp-footer fp-wrap"><Link href="/" className="fp-brand"><span className="fp-mark">●</span>FokalPoint</Link><span>Every Moment in Focus.</span><small>© 2026 FokalPoint. Made for creative people.</small></footer>
+  </main>;
 }
